@@ -1,53 +1,55 @@
 # Inbox MCP
 
-Turn your inbox into an intelligent, LLM-powered assistant—**instantly**. 
+Transform your inbox into an intelligent, LLM-powered assistant—**instantly**.
 
-Using simple, conversational language, manage, organize, and clean your email through powerful, batch-friendly tools built on [Nylas v3](https://nylas.com). Works effortlessly with Gmail, Outlook, iCloud, Yahoo, or virtually any IMAP provider you already connect to Apple Mail. (likely including your work email!)
+Easily manage, organize, and streamline your email using conversational language, powered by robust, batch-friendly tools built on [Nylas v3](https://nylas.com). Compatible out-of-the-box with Gmail, Outlook, iCloud, Yahoo, and virtually any IMAP service (even your work email!).
 
-We've put thought into the tool descriptions and parameters to make them easy to use and consistent for different LLMs. The tools return easily parsable XML blocks, letting the LLM focus on the task at hand.
+Tools are carefully crafted with clear descriptions and consistent parameters optimized for seamless integration with various LLMs. Responses are provided as easily parsable XML blocks, allowing the LLM to effortlessly handle your requests.
 
-I've tried out the workflows myself and I'm really happy with them. It lets assistants work in batches, being much more efficient than you at parsing and organizing your inbox, and reduces the cognitive load associated with email. 
+Tested extensively in real-life workflows, Inbox MCP significantly reduces cognitive load, efficiently handling tasks you’d rather automate.
 
-Nylas includes **5 free connected accounts**, so you can automate your inbox for free. 
-
----
-
-## ✨ Real-life examples (things you actually say)
-
-| You casually say to your assistant…                                                                                                | …and it effortlessly handles it.                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| *“Can you look through my Important folder and inbox, and let me know what emails I actually need to reply to or take action on?”* | Quickly reviews recent messages, identifies actionable ones, and presents a concise summary for follow-up.         |
-| *“Hey, can you check my last 100 emails, find which ones are unimportant, and move them into the Unimportant folder?”*             | Filters through emails, intelligently identifies lower-priority messages, and batches them neatly out of your way. |
-| *“Archive everything older than two weeks except for starred messages.”*                                                           | Finds emails, protects starred items, and safely archives in efficient batches.                                    |
-| *“Summarize and forward the latest alerts from AWS to my team.”*                                                                   | Retrieves alerts, compiles a concise summary, and immediately shares via email.                                    |
+Nylas includes **5 free connected accounts**, so you can get started immediately—without spending a dime.
 
 ---
 
-## 🎯 Why use this?
+## ✨ Real-life examples (things you'll actually say)
 
-- **Inbox Zero, effortlessly:** Automate your inbox management with quick, plain-English instructions.
-- **Smart Triage:** Instantly categorize, prioritize, and batch-process large sets of emails.
-- **Simplicity:** Super simple onboarding. Native signup--no need to get an OAuth token, setup a proxy, or mess with GCP.
-
+| You casually say…                                                                                         | Inbox MCP effortlessly handles it by…                                                                 |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| *“Can you check my Important folder and inbox, and tell me which emails I need to respond to or act on?”* | Reviewing your messages, quickly identifying actionable emails, and summarizing what needs attention. |
+| *“Find the unimportant emails from my last 100 and move them to the Unimportant folder.”*                 | Intelligently filtering out low-priority emails and neatly organizing them out of sight.              |
+| *“Archive everything older than two weeks, except starred emails.”*                                       | Batch-archiving older emails while safely preserving your starred messages.                           |
+| *“Summarize and forward the latest AWS alerts to my team.”*                                               | Compiling recent AWS alerts into a concise summary and sending it off immediately.                    |
 
 ---
 
-## Creating a new Nylas account
+## 🎯 Why use Inbox MCP?
 
-Sign up at https://dashboard-v3.nylas.com/register?utm_source=docs&utm_medium=devrel-surfaces&utm_campaign=&utm_content=quickstart .
+- **Inbox Zero, Simplified:** Quickly automate email management using natural language instructions.
+- **Efficient Triage:** Instantly categorize, prioritize, and batch-process emails effortlessly.
+- **Easy Setup:** Hassle-free onboarding with direct account connections. No OAuth tokens, proxies, or complex setups.
 
-Get your API key from the dashboard--look at for the `API KEY` label on the sidebar. [api_key_loc.png]
+---
 
-Then, go to `grants` (sidebar), then `add test grant` at the upper right, and connect your email account. [grant_loc.png]
+## 📌 Quick Setup: Creating a Nylas Account
 
-Save both the API key and the grant ID (in the table). 
+1. Sign up at: [Nylas Dashboard](https://dashboard-v3.nylas.com/register?utm_source=docs&utm_medium=devrel-surfaces&utm_campaign=&utm_content=quickstart).
+2. Grab your API key from the sidebar (`API KEY`).  
+   ![API Key location](api_key_loc.png)
+3. Navigate to `Grants`, click `Add Test Grant` (top-right), and connect your email account.  
+   ![Grant ID location](grant_loc.png)
+4. Note your API key and Grant ID (shown in the grants table).
 
-## 🚀 Get started (literally 1 minute)
+---
+
+## 🚀 Get started (in under a minute)
+
+Clone, configure, and run:
 
 ```bash
 git clone https://github.com/your-handle/nylas-mcp-server.git
 cd nylas-mcp-server
-cp .env.example .env   # Edit with your Nylas credentials
+cp .env.example .env   # edit with your Nylas credentials
 npm install && npm run build
 npm start
 ```
@@ -59,7 +61,7 @@ In your MCP client's `mcp-config.json`:
   "mcpServers": {
     "nylas-email": {
       "command": "npm start",
-      "workingDirectory": "/absolute/path/nylas-mcp-server",
+      "workingDirectory": "/absolute/path/to/nylas-mcp-server",
       "env": {
         "NYLAS_ACCESS_TOKEN": "...",
         "NYLAS_GRANT_ID": "..."
@@ -69,38 +71,40 @@ In your MCP client's `mcp-config.json`:
 }
 ```
 
+---
+
+## 🔧 Daily workflow tools (optimized)
+
+| Tool                             | What it does (in plain English)                                          |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| **`filter_emails`**              | Find emails quickly by folder, unread status, dates, or flags.           |
+| **`triage_update_emails`**       | Batch-update emails as read/unread, starred/unstarred, or move folders.  |
+| **`batch_archive_emails`**       | Archive groups of emails safely and quickly.                             |
+| **`search_emails`**              | Search emails rapidly with simple keyword queries.                       |
+| **`read_emails`**                | Fetch complete emails formatted neatly in Markdown, ideal for summaries. |
+| **`send_email` / `draft_email`** | Easily compose and send (or draft) new emails.                           |
+| **Folder management tools**      | (`list_`, `create_`, `update_`, `delete_`, `get_or_create_`)             |
 
 ---
 
-## 🔧 Tools optimized for daily workflow
+## 🗺️ Roadmap
 
-| Tool                             | What it does in plain English                                                 |
-| -------------------------------- | ----------------------------------------------------------------------------- |
-| **`filter_emails`**              | Quickly search emails by folder, unread status, dates, and flags.             |
-| **`triage_update_emails`**       | Batch-mark emails as read/unread, starred/unstarred, or move between folders. |
-| **`batch_archive_emails`**       | Instantly archive groups of emails in safe batches.                           |
-| **`search_emails`**              | Rapidly find emails using simple, single-word searches.                       |
-| **`read_emails`**                | Fetch complete emails in Markdown-friendly format, ready for summarization.   |
-| **`send_email` / `draft_email`** | Compose and send (or draft) emails seamlessly.                                |
-| **Folder management**            | (`list_`, `create_`, `update_`, `delete_`, `get_or_create_`)                  |
+- Enhanced provider-native search (supporting advanced queries, multi-term searches)
+- Calendar and contacts integration
+- Expanded toolset and automation capabilities
 
 ---
 
-## Roadmap
+## 👩‍💻 Developer-friendly
 
-- Provider Native search improvements (right now, multiple spaces are ignored, can't do non-nylas filtering)
-- 
-
-## 👩‍💻 Development-friendly
-
-- TypeScript 5.2, minimal dependencies, clean code
+- Clean TypeScript (v5.2), minimal dependencies
 - Robust built-in retries (exponential back-off + jitter)
-- Contributions welcome!
+- Contributions warmly welcomed—let's make email management better together!
 
 ---
 
-## 📄 License & Thanks
+## 📄 License & Support
 
-Licensed under the [MIT License](LICENSE). 
+Licensed under [MIT](LICENSE).
 
-If this makes your inbox less painful, please ⭐️—your star helps others find it too!
+If Inbox MCP makes your day easier, please ⭐️—your star helps others discover it too!
