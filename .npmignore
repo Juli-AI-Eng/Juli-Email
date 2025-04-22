@@ -1,0 +1,31 @@
+# Source files
+src/
+
+# Config files
+tsconfig.json
+.gitignore
+.npmignore
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env*
+
+# Test files
+test/
+coverage/
+
+# Editor files
+.vscode/
+.idea/
+**/*.swp
+**/*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

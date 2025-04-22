@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "nylas-email": {
+      "command": "node",
+      "args": [
+        "/Users/darin/claude/nylas_mcp/dist/index.js"
+      ],
+      "env": {
+        "NODE_ENV": "development",
+        "NYLAS_ACCESS_TOKEN": "21212121212121212121212121212121",
+        "NYLAS_GRANT_ID": "1234567890"
+      }
+    }
+  }
+}
