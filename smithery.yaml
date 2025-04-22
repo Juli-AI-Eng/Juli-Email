@@ -1,0 +1,36 @@
+startCommand:
+  # Tell the harness we speak STDIO ⬇
+  type: stdio # current schema
+  transport: stdio # keeps older test harnesses happy
+
+  # What users must provide at install‑time
+  configSchema:
+    type: object
+    required: [ "nylasAccessToken", "nylasGrantId" ]
+    properties:
+      nylasAccessToken:
+        type: string
+        description: "Nylas API access token (Dashboard → API Keys)"
+      nylasGrantId:
+        type: string
+        description: "Grant ID for the connected account (Dashboard → Grants)"
+      debug:
+        type: boolean
+        description: "Optional: set to true for verbose logging"
+
+  # Convert the config into the CLI + env vars Smithery will run
+  commandFunction: |-
+    (config) => ({
+      command: "node",
+      args: ["dist/index.js"],
+      env: {
+        NYLAS_ACCESS_TOKEN: config.nylasAccessToken,
+        NYLAS_GRANT_ID:     config.nylasGrantId,
+        NODE_ENV:           config.debug ? "development" : "production"
+      }
+    })
+
+# Tell Smithery where the Dockerfile lives (root)
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .

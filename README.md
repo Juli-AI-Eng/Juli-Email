@@ -1,10 +1,10 @@
-# 📬 Nylas MCP Email Server
+# Inbox MCP
 
 Turn your inbox into an intelligent, LLM-powered assistant—**instantly**. 
 
 Using simple, conversational language, manage, organize, and clean your email through powerful, batch-friendly tools built on [Nylas v3](https://nylas.com). Works effortlessly with Gmail, Outlook, iCloud, Yahoo, or virtually any IMAP provider you already connect to Apple Mail. (likely including your work email!)
 
-We've put thought into the tool descriptions and parameters to make them easy to use and consistent for different LLMs. 
+We've put thought into the tool descriptions and parameters to make them easy to use and consistent for different LLMs. The tools return easily parsable XML blocks, letting the LLM focus on the task at hand.
 
 I've tried out the workflows myself and I'm really happy with them. It lets assistants work in batches, being much more efficient than you at parsing and organizing your inbox, and reduces the cognitive load associated with email. 
 
@@ -20,6 +20,15 @@ Nylas includes **5 free connected accounts**, so you can automate your inbox for
 | *“Hey, can you check my last 100 emails, find which ones are unimportant, and move them into the Unimportant folder?”*             | Filters through emails, intelligently identifies lower-priority messages, and batches them neatly out of your way. |
 | *“Archive everything older than two weeks except for starred messages.”*                                                           | Finds emails, protects starred items, and safely archives in efficient batches.                                    |
 | *“Summarize and forward the latest alerts from AWS to my team.”*                                                                   | Retrieves alerts, compiles a concise summary, and immediately shares via email.                                    |
+
+---
+
+## 🎯 Why use this?
+
+- **Inbox Zero, effortlessly:** Automate your inbox management with quick, plain-English instructions.
+- **Smart Triage:** Instantly categorize, prioritize, and batch-process large sets of emails.
+- **Simplicity:** Super simple onboarding. Native signup--no need to get an OAuth token, setup a proxy, or mess with GCP.
+
 
 ---
 
@@ -63,14 +72,6 @@ In your MCP client's `mcp-config.json`:
 
 ---
 
-## 🎯 Why use this?
-
-- **Inbox Zero, effortlessly:** Automate your inbox management with quick, plain-English instructions.
-- **Smart Triage:** Instantly categorize, prioritize, and batch-process large sets of emails.
-- **Simplicity & Reliability:** No complicated OAuth or proprietary setup—just simple API-driven email handling.
-
----
-
 ## 🔧 Tools optimized for daily workflow
 
 | Tool                             | What it does in plain English                                                 |
@@ -85,18 +86,10 @@ In your MCP client's `mcp-config.json`:
 
 ---
 
----
+## Roadmap
 
-## ⚡️ Troubleshooting (simple fixes)
-
-| Problem                    | Quick solution                                                       |
-| -------------------------- | -------------------------------------------------------------------- |
-| **Missing credentials**    | Double-check your `.env` (copied from `.env.example`).               |
-| **401 Unauthorized**       | Generate a fresh Nylas API key easily from your dashboard.           |
-| **Missing Archive folder** | Manually create a folder named "Archive".                            |
-| **Rate-limit (429)**       | Automatic retries built-in; just reduce batch sizes or wait briefly. |
-
----
+- Provider Native search improvements (right now, multiple spaces are ignored, can't do non-nylas filtering)
+- 
 
 ## 👩‍💻 Development-friendly
 
@@ -104,11 +97,10 @@ In your MCP client's `mcp-config.json`:
 - Robust built-in retries (exponential back-off + jitter)
 - Contributions welcome!
 
-
 ---
 
 ## 📄 License & Thanks
 
-Licensed under the [ISC License](LICENSE).  
+Licensed under the [MIT License](LICENSE). 
 
 If this makes your inbox less painful, please ⭐️—your star helps others find it too!
