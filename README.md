@@ -14,12 +14,14 @@ Nylas includes **5 free connected accounts**, so you can get started immediately
 
 ## ✨ Real-life examples (things you'll actually say)
 
-| You casually say…                                                                                         | Inbox MCP effortlessly handles it by…                                                                 |
-| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| *“Can you check my Important folder and inbox, and tell me which emails I need to respond to or act on?”* | Reviewing your messages, quickly identifying actionable emails, and summarizing what needs attention. |
-| *“Find the unimportant emails from my last 100 and move them to the Unimportant folder.”*                 | Intelligently filtering out low-priority emails and neatly organizing them out of sight.              |
-| *“Archive everything older than two weeks, except starred emails.”*                                       | Batch-archiving older emails while safely preserving your starred messages.                           |
-| *“Summarize and forward the latest AWS alerts to my team.”*                                               | Compiling recent AWS alerts into a concise summary and sending it off immediately.                    |
+
+| You casually say…                                                                         | Inbox MCP effortlessly handles it by…                                                                 |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| *“take a look at my inbox and LMK what's important and what i have to act on”*            | Reviewing your messages, quickly identifying actionable emails, and summarizing what needs attention. |
+| *“Find the unimportant emails from my last 100 and move them to the Unimportant folder.”* | Intelligently filtering out low-priority emails and neatly organizing them out of sight.              |
+| *“Archive everything older than two weeks, except starred emails.”*                       | Batch-archiving older emails while safely preserving your starred messages.                           |
+| *“Summarize and forward the latest AWS alerts to my team.”*                               | Compiling recent AWS alerts into a concise summary and sending it off immediately.                    |
+
 
 ---
 
@@ -44,24 +46,41 @@ Nylas includes **5 free connected accounts**, so you can get started immediately
 
 ## 🚀 Get started (in under a minute)
 
-Clone, configure, and run:
+### Easy Smithery Installation (Interactive)
 
+Inbox MCP integrates seamlessly with MCP clients like Claude Desktop, Cursor, Windsurf, and more.
+
+**Interactive one-liner installation (recommended):**
 ```bash
-git clone https://github.com/your-handle/nylas-mcp-server.git
-cd nylas-mcp-server
-cp .env.example .env   # edit with your Nylas credentials
-npm install && npm run build
-npm start
+npx -y @smithery/cli@latest install "@darinkishore/inbox-mcp" --client claude
 ```
 
-In your MCP client's `mcp-config.json`:
+This will prompt you for your Nylas credentials (`nylasAccessToken` and `nylasGrantId`). For other supported MCP clients, replace `claude` with your preferred client:
+
+```bash
+npx -y @smithery/cli@latest install "@darinkishore/inbox-mcp" --client cursor # or windsurf, vscode, etc.
+```
+
+---
+
+## 🛠️ Manual local setup (optional)
+
+If you prefer manual control for local development:
+
+```bash
+git clone https://github.com/darinkishore/Inbox-MCP.git
+cd Inbox-MCP
+npm install && npm run build
+```
+
+Then in your MCP client's `mcp-config.json`:
 
 ```jsonc
 {
   "mcpServers": {
     "nylas-email": {
-      "command": "npm start",
-      "workingDirectory": "/absolute/path/to/nylas-mcp-server",
+      "command": "node dist/index.js",
+      "workingDirectory": "/absolute/path/to/Inbox-MCP",
       "env": {
         "NYLAS_ACCESS_TOKEN": "...",
         "NYLAS_GRANT_ID": "..."
@@ -89,7 +108,7 @@ In your MCP client's `mcp-config.json`:
 
 ## 🗺️ Roadmap
 
-- Enhanced provider-native search (supporting advanced queries, multi-term searches)
+- Enhanced provider-native search (advanced queries, multi-term searches)
 - Calendar and contacts integration
 - Expanded toolset and automation capabilities
 
