@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  inbox-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inbox-mcp-server
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=${PORT:-3000}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Add a reverse proxy for production use
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: inbox-mcp-nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   depends_on:
+  #     - inbox-mcp
+  #   restart: unless-stopped
+
+# Optional: Add a network for isolation
+networks:
+  default:
+    name: inbox-mcp-network

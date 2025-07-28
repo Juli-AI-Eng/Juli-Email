@@ -1,17 +1,37 @@
 {
-  "name": "nylas-mcp-server",
+  "name": "inbox-mcp",
   "version": "1.0.0",
-  "description": "MCP server for email (Nylas API based)",
+  "description": "Transform your inbox into an intelligent AI assistant. MCP server for email management via Nylas API with natural language processing.",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "bin": {
-    "nylas-mcp": "dist/index.js"
+    "inbox-mcp": "dist/server.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/inbox-mcp"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yourusername/inbox-mcp/issues"
+  },
+  "homepage": "https://github.com/yourusername/inbox-mcp#readme",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc -w & nodemon dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "dev:stdio": "echo 'stdio mode removed - use HTTP server'",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:e2e": "jest --config tests/e2e/jest.config.js",
+    "test:e2e:interactive": "jest --config tests/e2e/jest.config.js --runInBand",
+    "test:e2e:watch": "jest --config tests/e2e/jest.config.js --watch",
+    "test:e2e:run": "tsx tests/e2e/run-e2e-tests.ts",
+    "test:e2e:onboarding": "jest --config tests/e2e/jest.config.js onboardingFlow",
+    "test:approval": "jest --config tests/e2e/jest.config.js --testNamePattern=\"send email with approval flow\"",
+    "test:tools": "jest --config tests/e2e/jest.config.js fullRealApiJourney.test.ts toolApprovals.test.ts"
   },
   "files": [
     "dist",
@@ -19,24 +39,46 @@
   ],
   "keywords": [
     "mcp",
+    "model-context-protocol",
+    "juli",
     "nylas",
     "email",
-    "api"
+    "ai",
+    "assistant",
+    "inbox",
+    "gmail",
+    "outlook",
+    "natural-language",
+    "email-management"
   ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "cors": "^2.8.5",
     "dotenv": "^16.5.0",
+    "express": "^5.1.0",
     "node-fetch": "^3.3.2",
     "nylas": "^7.8.0",
+    "openai": "^5.10.2",
     "sanitize-html": "^2.16.0",
     "turndown": "^7.1.1",
-    "zod": "^3.22.4"
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
+    "@jest/globals": "^30.0.5",
+    "@types/axios": "^0.14.4",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.4.2",
+    "@types/prompts": "^2.4.9",
+    "@types/supertest": "^6.0.3",
+    "axios": "^1.11.0",
+    "jest": "^30.0.5",
     "nodemon": "^3.0.1",
+    "prompts": "^2.4.2",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.0",
+    "tsx": "^4.20.3",
     "typescript": "^5.2.2"
   }
 }

@@ -1,25 +1,56 @@
 # ---------- Build stage ----------
 FROM node:20-alpine AS build
 
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 
-# 1. install deps first for better cache hits
+# Copy package files
 COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install all dependencies (including dev dependencies for building)
 RUN npm ci
 
-# 2. copy sources & compile TypeScript → dist/
-COPY . .
+# Copy source code
+COPY src ./src
+
+# Build the TypeScript code
 RUN npm run build
 
 # ---------- Runtime stage ----------
 FROM node:20-alpine
 
+# Install runtime dependencies
+RUN apk add --no-cache tini
+
 WORKDIR /app
 
-# Only bring the compiled JS and production deps
-COPY --from=build /app/dist ./dist
+# Copy package files
 COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
 
-# Smithery injects the final CMD, but keeping a default helps local `docker run`
-CMD ["node", "dist/index.js"]
+# Install only production dependencies
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Copy built application from build stage
+COPY --from=build /app/dist ./dist
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership of app directory
+RUN chown -R nodejs:nodejs /app
+
+# Switch to non-root user
+USER nodejs
+
+# Expose the default port
+EXPOSE 3000
+
+# Use tini for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start the server
+CMD ["node", "dist/server.js"]

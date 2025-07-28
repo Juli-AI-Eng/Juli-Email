@@ -13,6 +13,7 @@ logs
 
 # Environment variables
 .env
+.env.test
 .env.local
 .env.development.local
 .env.test.local
@@ -21,12 +22,74 @@ logs
 # TypeScript
 *.tsbuildinfo
 
-# OS files
-.DS_Store
-Thumbs.db
-
 # Editor directories and files
 .idea/
-.vscode/
 *.swp
 *.swo
+
+# Setup metadata
+.nylas-setup.json
+
+# Test files
+test_*.js
+test_*.mjs
+test_*.html
+test_*.json
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Claude Code settings
+.claude/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Debug logs
+debug.log
+lerna-debug.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Logs
+server.log
+tests/e2e/logs/
+
+# Lock files (keep only package-lock.json)
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
+
+# Smithery config (if not needed for public)
+smithery.yaml
