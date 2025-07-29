@@ -3,6 +3,7 @@
 Comprehensive documentation for all tools available in the Inbox MCP server, including the setup endpoint.
 
 ## Table of Contents
+- [Authentication & Credentials](#authentication--credentials)
 - [Setup Tool](#setup-tool)
 - [manage_email](#manage_email)
 - [find_emails](#find_emails)
@@ -12,11 +13,44 @@ Comprehensive documentation for all tools available in the Inbox MCP server, inc
 
 ---
 
+## Authentication & Credentials
+
+**Critical Information**: This MCP server is **stateless** and **never stores user credentials**.
+
+### How Credentials Work
+
+1. **Setup Phase**: The setup tool only **validates** credentials - it does not store them
+2. **Storage**: Juli securely stores all user credentials after validation
+3. **Runtime**: Juli sends credentials with **every single request** via HTTP headers
+
+### Required Headers for All Tools
+
+Every request to email tools (except setup) must include these headers:
+
+```http
+X-User-Credential-NYLAS_ACCESS_TOKEN: nyk_your_api_key_here
+X-User-Credential-NYLAS_GRANT_ID: your_grant_id_here
+```
+
+### What Happens Without Credentials
+
+If credentials are missing from headers, all email tools will return:
+
+```json
+{
+  "error": "Missing Nylas credentials. Please connect your email account first."
+}
+```
+
+---
+
 ## Setup Tool
 
 **Endpoint**: `POST /mcp/tools/setup`
 
-The setup tool guides users through connecting their email account via Nylas. It provides a multi-step wizard experience with validation.
+The setup tool **validates** user credentials but does **NOT store them**. It provides a multi-step wizard experience to help users connect their email account via Nylas.
+
+**Important**: This tool only tests if credentials work. Juli handles all credential storage and sends them with every request via HTTP headers.
 
 ### Parameters
 
@@ -71,7 +105,7 @@ Returns step-by-step setup instructions.
 ```
 
 #### `validate_credentials`
-Validates provided Nylas credentials.
+**Tests** provided Nylas credentials by attempting to connect to the user's email. **Does not store credentials** - only validates they work.
 
 **Request**:
 ```json
@@ -91,6 +125,8 @@ Validates provided Nylas credentials.
   "message": "Successfully connected to your email!",
   "email_address": "user@example.com",
   "provider": "gmail"
+  // NOTE: MCP server does NOT store these credentials
+  // Juli will store them and send with every future request
 }
 ```
 

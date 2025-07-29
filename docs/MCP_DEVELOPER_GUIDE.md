@@ -100,6 +100,8 @@ headers: {
 
 ### Setup Flow
 
+**Important**: Setup tools only **validate** credentials - they don't store them. Juli handles all storage and sends credentials with every request.
+
 When a user first installs your MCP:
 
 ```typescript
@@ -123,7 +125,7 @@ Response: {
   "validation_endpoint": "validate_credentials"
 }
 
-// 3. User provides credentials
+// 3. User provides credentials - MCP server VALIDATES ONLY
 POST /mcp/tools/setup
 Body: {
   "action": "validate_credentials",
@@ -133,14 +135,23 @@ Body: {
 }
 Response: {
   "valid": true,
-  "credentials_to_store": {
-    "api_key": "provided-key"
-  }
+  "message": "Credentials validated successfully"
+  // NOTE: MCP server does NOT store these credentials
 }
 
-// 4. Juli stores credentials securely
-// All future requests include them automatically
+// 4. Juli stores credentials securely (not your MCP server)
+// 5. Every future request includes credentials in headers
+POST /mcp/tools/your_tool
+Headers: {
+  "X-User-Credential-API_KEY": "provided-key"  // Juli sends this every time
+}
 ```
+
+**Key Points:**
+- **MCP servers are stateless** - never store user credentials
+- **Setup tools validate only** - test if credentials work, then return success/failure
+- **Juli handles storage** - credentials are encrypted and managed by Juli
+- **Every request includes credentials** - sent via HTTP headers automatically
 
 ## MCP Protocol Specification
 
@@ -290,6 +301,29 @@ Available context fields:
 - `current_time` - Current time in user's timezone
 
 ## Building Your MCP Server
+
+### Critical Design Principle: Stateless Credential Handling
+
+**🚨 Important**: MCP servers must be completely stateless regarding user credentials.
+
+```typescript
+// ❌ NEVER DO THIS - Don't store credentials
+const userCredentials = new Map(); // NO!
+userCredentials.set(userId, credentials); // NO!
+
+// ✅ ALWAYS DO THIS - Extract from headers per request
+function handleRequest(req) {
+  const credentials = extractCredentials(req.headers);
+  const client = new ServiceClient(credentials.api_key);
+  return client.doWork();
+}
+```
+
+**Why Stateless?**
+- **Security**: No credential leaks if server is compromised
+- **Scalability**: Servers can be scaled horizontally without session affinity
+- **Reliability**: Server restarts don't affect users
+- **Multi-tenancy**: One server instance serves all users safely
 
 ### Server Architecture
 
