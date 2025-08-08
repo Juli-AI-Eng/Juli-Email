@@ -854,7 +854,7 @@ class EmailAI {
   async understandQuery(query: string, context?: EmailContext): Promise<EmailIntent> {
     // Use GPT-4 to understand natural language email requests
     const response = await this.openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "gpt-5",
       messages: [
         {
           role: "system",

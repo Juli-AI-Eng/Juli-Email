@@ -10,19 +10,74 @@ import {
 export class EmailAI {
   private openai: OpenAI;
   private debugMode: boolean;
+  private defaultReasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  private defaultVerbosity: 'low' | 'medium' | 'high';
 
   constructor() {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY environment variable is required for EmailAI');
     }
-    
+
     this.openai = new OpenAI({
       apiKey: apiKey
     });
-    
+
     // Enable debug mode for tests
     this.debugMode = process.env.NODE_ENV === 'test' || process.env.DEBUG_AI === 'true';
+
+    // Defaults optimized for latency unless overridden via env
+    const reasoning = (process.env.OPENAI_REASONING_EFFORT || 'minimal').toLowerCase();
+    const verbosity = (process.env.OPENAI_VERBOSITY || 'low').toLowerCase();
+    this.defaultReasoningEffort = (['minimal', 'low', 'medium', 'high'].includes(reasoning) ? reasoning : 'minimal') as any;
+    this.defaultVerbosity = (['low', 'medium', 'high'].includes(verbosity) ? verbosity : 'low') as any;
+  }
+
+  private buildGpt5Params(overrides?: { reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high' }) {
+    return {
+      reasoning: { effort: overrides?.reasoning_effort || this.defaultReasoningEffort },
+      text: { verbosity: overrides?.verbosity || this.defaultVerbosity }
+    } as any;
+  }
+
+  private extractFirstToolCall(response: any): { name: string; arguments: string } | null {
+    if (!response) return null;
+    const out = (response as any).output;
+    if (Array.isArray(out)) {
+      // Direct tool_call item
+      const tc = out.find((o: any) => o?.type === 'tool_call');
+      if (tc) {
+        const name = tc.tool_name || tc.name;
+        const args = tc.arguments || tc.arguments_text || (typeof tc.input === 'object' ? JSON.stringify(tc.input) : tc.input);
+        if (name && args !== undefined) return { name, arguments: typeof args === 'string' ? args : JSON.stringify(args) };
+      }
+      // Tool use embedded in message content
+      const msg = out.find((o: any) => o?.type === 'message');
+      const content = msg?.content;
+      if (Array.isArray(content)) {
+        const toolUse = content.find((c: any) => c?.type === 'tool_use' && c?.name);
+        if (toolUse) {
+          const args = toolUse.input ?? {};
+          return { name: toolUse.name, arguments: JSON.stringify(args) };
+        }
+      }
+    }
+    return null;
+  }
+
+  private extractText(response: any): string | undefined {
+    if (!response) return undefined;
+    if (typeof response.output_text === 'string') return response.output_text as string;
+    const out = (response as any).output;
+    if (Array.isArray(out)) {
+      const msg = out.find((o: any) => o?.type === 'message');
+      const parts = msg?.content;
+      if (Array.isArray(parts)) {
+        const texts = parts.filter((p: any) => p?.type === 'output_text' || p?.type === 'text').map((p: any) => p?.text || p?.content).filter(Boolean);
+        if (texts.length > 0) return texts.join('\n');
+      }
+    }
+    return undefined;
   }
 
   async understandSearchQuery(query: string): Promise<{
@@ -122,32 +177,33 @@ Examples:
       console.log('🔧 Function Schema:', JSON.stringify(tools[0].function.parameters, null, 2));
     }
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: query }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "extract_search_params" } }
+      tool_choice: { type: "function", function: { name: "extract_search_params" } },
+      ...this.buildGpt5Params()
     });
 
     if (this.debugMode) {
       console.log('📊 AI Response:', JSON.stringify(completion.choices[0].message, null, 2));
     }
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'extract_search_params') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'extract_search_params') {
       throw new Error('Failed to understand search query');
     }
 
     const result = JSON.parse(toolCall.function.arguments);
-    
+
     // Clean up null values and parse dates if needed
     const searchParams: any = {
       intent: result.intent
     };
-    
+
     if (result.timeframe && (result.timeframe.start || result.timeframe.end)) {
       searchParams.timeframe = {};
       if (result.timeframe.start) {
@@ -157,29 +213,29 @@ Examples:
         searchParams.timeframe.end = this.parseTimeString(result.timeframe.end);
       }
     }
-    
+
     if (result.senders && result.senders.length > 0) {
       searchParams.senders = result.senders;
     }
-    
+
     if (result.keywords && result.keywords.length > 0) {
       searchParams.keywords = result.keywords;
     }
-    
+
     if (result.filters) {
       searchParams.filters = {};
       if (result.filters.unread !== null) searchParams.filters.unread = result.filters.unread;
       if (result.filters.starred !== null) searchParams.filters.starred = result.filters.starred;
       if (result.filters.hasAttachments !== null) searchParams.filters.hasAttachments = result.filters.hasAttachments;
     }
-    
+
     return searchParams;
   }
 
   private parseTimeString(timeStr: string): Date {
     const now = new Date();
     const lowerStr = timeStr.toLowerCase();
-    
+
     // Handle relative dates
     if (lowerStr === 'today') {
       return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -206,7 +262,7 @@ Examples:
       date.setMonth(date.getMonth() - 1);
       return date;
     }
-    
+
     // Try to parse as a date string
     return new Date(timeStr);
   }
@@ -277,26 +333,22 @@ Examples:
       console.log('🔧 Function Schema:', JSON.stringify(tools[0].function.parameters, null, 2));
     }
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5",
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: query }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "extract_email_intent" } }
+      tool_choice: { type: "function", function: { name: "extract_email_intent" } },
+      ...this.buildGpt5Params()
     });
 
-    if (this.debugMode) {
-      console.log('📊 AI Response:', JSON.stringify(completion.choices[0].message, null, 2));
-    }
-
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'extract_email_intent') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'extract_email_intent') {
       throw new Error('Failed to extract email intent');
     }
-
-    const result = JSON.parse(toolCall.function.arguments) as EmailIntent;
+    const result = JSON.parse(toolCall.arguments) as EmailIntent;
 
     // If context has sender email and intent is reply, ensure it's in recipients
     if (context?.senderEmail && result.intent === 'reply') {
@@ -368,7 +420,7 @@ Examples:
       return name ? `${name} (${email})` : email;
     }).join(', ') || 'to be determined';
 
-    const senderContext = senderInfo?.name && senderInfo?.email 
+    const senderContext = senderInfo?.name && senderInfo?.email
       ? `You are writing this email as ${senderInfo.name} (${senderInfo.email})`
       : 'You are writing a professional email';
 
@@ -383,9 +435,9 @@ Examples:
     
     ${contextEmail ? `This is in response to an email with subject: "${contextEmail.subject}"` : ''}
     
-    RECIPIENT NAMES: ${recipientNames && Object.keys(recipientNames).length > 0 
-      ? Object.entries(recipientNames).map(([email, name]) => `${email} = ${name}`).join(', ')
-      : 'No contact names found - use "Hello" as greeting'}
+    RECIPIENT NAMES: ${recipientNames && Object.keys(recipientNames).length > 0
+        ? Object.entries(recipientNames).map(([email, name]) => `${email} = ${name}`).join(', ')
+        : 'No contact names found - use "Hello" as greeting'}
     
     FORMATTING REQUIREMENTS:
     - Use proper paragraph breaks with double line breaks (\\n\\n) between paragraphs
@@ -397,29 +449,30 @@ Examples:
     
     Write a complete, professional email that covers all key points naturally with proper formatting.`;
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5",
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: "Generate the email content." }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_email" } }
+      tool_choice: { type: "function", function: { name: "generate_email" } },
+      ...this.buildGpt5Params({ verbosity: 'medium' })
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_email') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_email') {
       throw new Error('Failed to generate email content');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
-    
+    const result = JSON.parse(toolCall.arguments);
+
     // Debug log to see what the AI generated
     if (this.debugMode) {
       console.log('📧 Generated email body:', result.body);
       console.log('📧 Body includes \\n\\n:', result.body.includes('\\n\\n'));
     }
-    
+
     // Convert null values to undefined for optional fields
     return {
       to: result.to,
@@ -492,11 +545,11 @@ Examples:
     }));
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       messages: [
-        { 
-          role: "system", 
-          content: `Analyze emails for importance and categorization. Consider sender importance, urgency indicators, business impact, and time sensitivity.` 
+        {
+          role: "system",
+          content: `Analyze emails for importance and categorization. Consider sender importance, urgency indicators, business impact, and time sensitivity.`
         },
         { role: "user", content: `Analyze these emails: ${JSON.stringify(emailSummaries)}` }
       ],
@@ -574,7 +627,7 @@ Examples:
     Write the summary as if you're a helpful assistant briefing someone about their inbox.`;
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Summarize these emails: ${JSON.stringify(emailSummaries)}` }
@@ -589,18 +642,18 @@ Examples:
     }
 
     const result = JSON.parse(toolCall.function.arguments);
-    
+
     // Combine the structured data into a natural summary
     let fullSummary = result.summary;
-    
+
     if (result.important_items.length > 0) {
       fullSummary += ` Important: ${result.important_items.join(', ')}.`;
     }
-    
+
     if (result.action_required.length > 0) {
       fullSummary += ` Action needed: ${result.action_required.join(', ')}.`;
     }
-    
+
     return fullSummary;
   }
 
@@ -652,11 +705,11 @@ Examples:
     };
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       messages: [
-        { 
-          role: "system", 
-          content: "Extract all actionable items from the email. Be thorough." 
+        {
+          role: "system",
+          content: "Extract all actionable items from the email. Be thorough."
         },
         { role: "user", content: `Extract action items from: ${JSON.stringify(emailContent)}` }
       ],
@@ -716,9 +769,9 @@ Examples:
     const completion = await this.openai.chat.completions.create({
       model: "gpt-4.1",
       messages: [
-        { 
-          role: "system", 
-          content: "Generate smart folder rules based on the user description." 
+        {
+          role: "system",
+          content: "Generate smart folder rules based on the user description."
         },
         { role: "user", content: folderDescription }
       ],
@@ -780,9 +833,9 @@ Examples:
     const completion = await this.openai.chat.completions.create({
       model: "gpt-4.1",
       messages: [
-        { 
-          role: "system", 
-          content: "Categorize emails into logical groups like: receipts, newsletters, work, personal, etc." 
+        {
+          role: "system",
+          content: "Categorize emails into logical groups like: receipts, newsletters, work, personal, etc."
         },
         { role: "user", content: JSON.stringify(emailSummaries) }
       ],
@@ -796,7 +849,7 @@ Examples:
     }
 
     const result = JSON.parse(toolCall.function.arguments);
-    
+
     // Group by category
     const categoryMap = new Map<string, string[]>();
     result.categories.forEach(({ email_id, category }: { email_id: string; category: string }) => {
@@ -1021,7 +1074,7 @@ Examples:
 - "weekly summary" → weekly_summary`;
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: query }
@@ -1133,7 +1186,7 @@ Examples:
     Focus on actionable insights and patterns that help improve email management.`;
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these emails from the past week: ${JSON.stringify(emailSummaries)}` }
@@ -1251,7 +1304,7 @@ Examples:
     Focus on actionable insights and help the user understand what to do next.`;
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these important emails: ${JSON.stringify(importantEmails)}` }
@@ -1365,7 +1418,7 @@ Examples:
     Help the user tackle their response backlog efficiently.`;
 
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these emails needing responses: ${JSON.stringify(responseData)}` }
@@ -1383,7 +1436,7 @@ Examples:
   }
 
   async generateAnalyticsInsights(
-    emails: Email[], 
+    emails: Email[],
     timePeriod: string,
     senderStats: Map<string, number>,
     categories: Record<string, number>
