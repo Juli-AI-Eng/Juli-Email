@@ -252,15 +252,15 @@ app.get('/api/nylas-email/callback', async (req, res) => {
 
     const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
 
-    // Use the exact callback URL that the user hit to avoid mismatch
-    const requestBase = `${req.protocol}://${req.get('host')}`;
-    const effectiveRedirectUri = `${requestBase}${req.path}`;
+    // Use the exact registered callback URI for consistency
+    // const requestBase = `${req.protocol}://${req.get('host')}`;
+    // const effectiveRedirectUri = `${requestBase}${req.path}`;
 
     // Perform code exchange
     const response = await (nylas as any).auth.exchangeCodeForToken({
       clientSecret: NYLAS_API_KEY,
       clientId: NYLAS_CLIENT_ID,
-      redirectUri: effectiveRedirectUri || NYLAS_CALLBACK_URI,
+      redirectUri: NYLAS_CALLBACK_URI,
       code
     });
 
