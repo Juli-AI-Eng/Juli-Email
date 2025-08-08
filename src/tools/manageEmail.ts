@@ -371,13 +371,13 @@ export class ManageEmailTool {
           } else if (contacts.length === 1) {
             // Single match, use it
             resolvedRecipients.push(contacts[0].email);
-            console.log(`✅ Resolved "${recipient}" to ${contacts[0].email}`);
+            logger.info(`✅ Resolved "${recipient}" to ${contacts[0].email}`);
           } else {
             // Multiple matches, for now use the first one but log a warning
             // In a future enhancement, we could ask for clarification
             resolvedRecipients.push(contacts[0].email);
-            console.log(`⚠️ Multiple contacts found for "${recipient}", using ${contacts[0].email}`);
-            console.log('Other matches:', contacts.slice(1).map(c => `${c.name} (${c.email})`).join(', '));
+            logger.warn(`⚠️ Multiple contacts found for "${recipient}", using ${contacts[0].email}`);
+            logger.warn('Other matches: ' + contacts.slice(1).map(c => `${c.name} (${c.email})`).join(', '));
           }
         }
       }
