@@ -17,7 +17,7 @@ import { EmailInsightsTool } from './tools/emailInsights.js';
 import { SmartFoldersTool } from './tools/smartFolders.js';
 
 // Import types
-import { 
+import {
   ManageEmailParams,
   FindEmailsParams,
   OrganizeInboxParams,
@@ -32,11 +32,11 @@ const ManageEmailSchema = z.object({
   query: z.string().describe('Describe what you want in the email. Be natural! Examples: "tell John I\'ll be late to the meeting", "thank Sarah for the proposal and ask about pricing", "forward this to the team with my thoughts"'),
   context_message_id: z.string().optional().describe('Email ID if replying/forwarding (I\'ll find it if you don\'t provide it)'),
   require_approval: z.boolean().optional().default(true).describe('Show preview before sending (default: true for safety)'),
-  
+
   // Context injection fields from Juli
   user_name: z.string().optional().describe('User\'s name from context injection'),
   user_email: z.string().optional().describe('User\'s email from context injection'),
-  
+
   // Stateless approval fields
   approved: z.boolean().optional().describe('Whether this is an approved action execution'),
   action_data: z.object({
@@ -60,7 +60,7 @@ const OrganizeInboxSchema = z.object({
     limit: z.number().optional().default(100).describe('Max emails to process at once')
   }).optional().describe('Scope of organization'),
   dry_run: z.boolean().optional().default(true).describe('Preview what will happen before making changes (default: true for safety)'),
-  
+
   // New stateless approval fields
   approved: z.boolean().optional().describe('Whether this is an approved action execution'),
   action_data: z.object({
@@ -80,7 +80,7 @@ const SmartFoldersSchema = z.object({
   query: z.string().describe('Describe what you want to do with folders. Examples: "create a folder for urgent client emails", "set up folders for each project", "make a folder for receipts and invoices", "show me my folders"'),
   folder_name: z.string().optional().describe('Name for the folder (I\'ll suggest one if you don\'t specify)'),
   dry_run: z.boolean().optional().default(true).describe('Preview the folder rules before creating (default: true)'),
-  
+
   // New stateless approval fields
   approved: z.boolean().optional().describe('Whether this is an approved action execution'),
   action_data: z.object({
@@ -92,31 +92,27 @@ const SmartFoldersSchema = z.object({
 
 // Middleware to extract credentials from headers
 interface UserCredentials {
-  nylasAccessToken?: string;
   nylasGrantId?: string;
 }
 
 function extractCredentials(headers: any): UserCredentials {
   const credentials: UserCredentials = {};
-  
+
   for (const [key, value] of Object.entries(headers)) {
     if (key.toLowerCase().startsWith('x-user-credential-')) {
       const credKey = key.toLowerCase()
         .replace('x-user-credential-', '')
         .replace(/-/g, '_')
         .toUpperCase();
-      
+
       switch (credKey) {
-        case 'NYLAS_ACCESS_TOKEN':
-          credentials.nylasAccessToken = value as string;
-          break;
         case 'NYLAS_GRANT_ID':
           credentials.nylasGrantId = value as string;
           break;
       }
     }
   }
-  
+
   return credentials;
 }
 
@@ -142,7 +138,7 @@ app.use((req, res, next) => {
     requestId: req.headers['x-platform-request-id'] as string,
     credentials: extractCredentials(req.headers)
   };
-  
+
   res.locals.context = context;
   next();
 });
@@ -154,13 +150,148 @@ const logger = {
   warn: console.warn
 };
 
+// Helper to build a Hosted Auth URL (no redirect)
+function buildHostedAuthUrl(params: {
+  requestBase: string;
+  scope?: string;
+  prompt?: string;
+  loginHint?: string;
+  redirectUriOverride?: string;
+}): string {
+  if (!NYLAS_API_KEY || !NYLAS_CLIENT_ID) {
+    throw new Error('NYLAS_API_KEY and NYLAS_CLIENT_ID must be set');
+  }
+  const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
+  const redirect = params.redirectUriOverride || `${params.requestBase}/api/nylas-email/callback`;
+  const rawScope = params.scope || '';
+  const scope = rawScope
+    ? rawScope.split(',').map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const authUrl = (nylas as any).auth.urlForOAuth2({
+    clientId: NYLAS_CLIENT_ID,
+    redirectUri: redirect,
+    ...(params.loginHint ? { loginHint: params.loginHint } : {}),
+    ...(params.prompt ? { prompt: params.prompt } : {}),
+    ...(scope ? { scope } : {})
+  });
+  return authUrl;
+}
+
+// --- Nylas Hosted Auth routes ---
+// Environment-driven configuration
+const NYLAS_API_KEY = process.env.NYLAS_API_KEY;
+const NYLAS_CLIENT_ID = process.env.NYLAS_CLIENT_ID;
+const NYLAS_CALLBACK_URI = process.env.NYLAS_CALLBACK_URI;
+const NYLAS_API_URI = process.env.NYLAS_API_URI; // optional (defaults to US)
+
+// GET /nylas/auth - Redirect user to Nylas Hosted Auth
+// Optional query params:
+//   login_hint: prefill user email
+//   prompt: customize provider selection UI (e.g., detect,select_provider)
+//   scope: comma-separated scopes list
+//   redirect_uri: override callback (falls back to env)
+app.get('/nylas/auth', (req, res) => {
+  try {
+    if (!NYLAS_API_KEY || !NYLAS_CLIENT_ID || (!NYLAS_CALLBACK_URI && !req.query.redirect_uri)) {
+      return res.status(500).json({
+        error: 'Server is not configured for Hosted Auth. Set NYLAS_API_KEY, NYLAS_CLIENT_ID, and NYLAS_CALLBACK_URI.'
+      });
+    }
+
+    const requestBase = `${req.protocol}://${req.get('host')}`;
+    const authUrl = buildHostedAuthUrl({
+      requestBase,
+      scope: (req.query.scope as string) || '',
+      prompt: (req.query.prompt as string) || undefined,
+      loginHint: (req.query.login_hint as string) || undefined,
+      redirectUriOverride: (req.query.redirect_uri as string) || NYLAS_CALLBACK_URI
+    });
+
+    // Default to HTTP redirect; support JSON via ?return=json
+    if (req.query.return === 'json') {
+      return res.json({ url: authUrl });
+    }
+    res.redirect(authUrl);
+  } catch (error: any) {
+    logger.error('Error generating Hosted Auth URL:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate Hosted Auth URL' });
+  }
+});
+
+// GET /setup/connect-url - Return Hosted Auth URL as JSON (no redirect)
+app.get('/setup/connect-url', (req, res) => {
+  try {
+    const requestBase = `${req.protocol}://${req.get('host')}`;
+    const url = buildHostedAuthUrl({
+      requestBase,
+      scope: (req.query.scope as string) || '',
+      prompt: (req.query.prompt as string) || undefined,
+      loginHint: (req.query.login_hint as string) || undefined,
+      redirectUriOverride: (req.query.redirect_uri as string) || NYLAS_CALLBACK_URI
+    });
+    res.json({ url });
+  } catch (error: any) {
+    logger.error('Error building connect URL:', error);
+    res.status(500).json({ error: error.message || 'Failed to build connect URL' });
+  }
+});
+
+// GET /api/nylas-email/callback - OAuth callback to exchange code for grant_id
+app.get('/api/nylas-email/callback', async (req, res) => {
+  try {
+    if (!NYLAS_API_KEY || !NYLAS_CLIENT_ID || !NYLAS_CALLBACK_URI) {
+      return res.status(500).json({
+        error: 'Server is not configured for Hosted Auth. Set NYLAS_API_KEY, NYLAS_CLIENT_ID, and NYLAS_CALLBACK_URI.'
+      });
+    }
+
+    const code = req.query.code as string | undefined;
+    if (!code) {
+      return res.status(400).json({ error: 'Missing authorization code in callback' });
+    }
+
+    const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
+
+    // Use the exact callback URL that the user hit to avoid mismatch
+    const requestBase = `${req.protocol}://${req.get('host')}`;
+    const effectiveRedirectUri = `${requestBase}${req.path}`;
+
+    // Perform code exchange
+    const response = await (nylas as any).auth.exchangeCodeForToken({
+      clientSecret: NYLAS_API_KEY,
+      clientId: NYLAS_CLIENT_ID,
+      redirectUri: effectiveRedirectUri || NYLAS_CALLBACK_URI,
+      code
+    });
+
+    // Normalized output
+    const grantId = response?.grantId || response?.grant_id;
+    const email = response?.email || response?.data?.email;
+
+    if (!grantId) {
+      return res.status(500).json({ error: 'No grant_id returned from Nylas' });
+    }
+
+    // Return the grant so the client can store and inject it on future requests
+    res.json({
+      success: true,
+      grant_id: grantId,
+      email,
+      message: 'Connected successfully. Store grant_id and start calling the email tools.'
+    });
+  } catch (error: any) {
+    logger.error('OAuth callback error:', error);
+    res.status(500).json({ error: error.message || 'Failed to complete OAuth exchange' });
+  }
+});
+
 // GET /mcp/tools - List available tools
 app.get('/mcp/tools', (req, res) => {
   const context: RequestContext = res.locals.context;
-  const hasCredentials = !!(context.credentials.nylasAccessToken && context.credentials.nylasGrantId);
-  
+  const hasCredentials = !!(NYLAS_API_KEY && context.credentials.nylasGrantId);
+
   const tools = [];
-  
+
   // Only include email tools if credentials are present
   if (hasCredentials) {
     tools.push(
@@ -205,7 +336,7 @@ app.get('/mcp/tools', (req, res) => {
       }
     );
   }
-  
+
   res.json({ tools });
 });
 
@@ -214,132 +345,132 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
   const { toolName } = req.params;
   const { arguments: args } = req.body;
   const context: RequestContext = res.locals.context;
-  
+
   console.log(`Executing ${toolName} for user ${context.userId} (${context.requestId})`);
-  
+
   try {
     let result: any;
-    
+
     switch (toolName) {
       case 'manage_email': {
-        if (!context.credentials.nylasAccessToken || !context.credentials.nylasGrantId) {
+        if (!NYLAS_API_KEY || !context.credentials.nylasGrantId) {
           throw new Error('Missing Nylas credentials. Please connect your email account first.');
         }
-        
+
         const params = ManageEmailSchema.parse(args) as ManageEmailParams;
-        const nylas = new Nylas({ apiKey: context.credentials.nylasAccessToken });
+        const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
         const emailAI = new EmailAI(); // Uses our server's OpenAI key
-        
+
         const tool = new ManageEmailTool(
           nylas,
           context.credentials.nylasGrantId,
           emailAI,
           { userName: params.user_name, userEmail: params.user_email }
         );
-        
+
         result = await tool.execute(params);
         break;
       }
-      
+
       case 'find_emails': {
-        if (!context.credentials.nylasAccessToken || !context.credentials.nylasGrantId) {
+        if (!NYLAS_API_KEY || !context.credentials.nylasGrantId) {
           throw new Error('Missing Nylas credentials. Please connect your email account first.');
         }
-        
+
         const params = FindEmailsSchema.parse(args) as FindEmailsParams;
-        const nylas = new Nylas({ apiKey: context.credentials.nylasAccessToken });
+        const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
         const emailAI = new EmailAI(); // Uses our server's OpenAI key
-        
+
         const tool = new FindEmailsTool(
           nylas,
           context.credentials.nylasGrantId,
           emailAI
         );
-        
+
         result = await tool.execute(params);
         break;
       }
-      
+
       case 'organize_inbox': {
-        if (!context.credentials.nylasAccessToken || !context.credentials.nylasGrantId) {
+        if (!NYLAS_API_KEY || !context.credentials.nylasGrantId) {
           throw new Error('Missing Nylas credentials. Please connect your email account first.');
         }
-        
+
         const params = OrganizeInboxSchema.parse(args) as OrganizeInboxParams;
-        const nylas = new Nylas({ apiKey: context.credentials.nylasAccessToken });
+        const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
         const emailAI = new EmailAI(); // Uses our server's OpenAI key
-        
+
         const tool = new OrganizeInboxTool(
           nylas,
           context.credentials.nylasGrantId,
           emailAI
         );
-        
+
         result = await tool.execute(params);
         break;
       }
-      
+
       case 'email_insights': {
-        if (!context.credentials.nylasAccessToken || !context.credentials.nylasGrantId) {
+        if (!NYLAS_API_KEY || !context.credentials.nylasGrantId) {
           throw new Error('Missing Nylas credentials. Please connect your email account first.');
         }
-        
+
         const params = EmailInsightsSchema.parse(args) as EmailInsightsParams;
-        const nylas = new Nylas({ apiKey: context.credentials.nylasAccessToken });
+        const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
         const emailAI = new EmailAI(); // Uses our server's OpenAI key
-        
+
         const tool = new EmailInsightsTool(
           nylas,
           context.credentials.nylasGrantId,
           emailAI
         );
-        
+
         result = await tool.execute(params);
         break;
       }
-      
+
       case 'smart_folders': {
-        if (!context.credentials.nylasAccessToken || !context.credentials.nylasGrantId) {
+        if (!NYLAS_API_KEY || !context.credentials.nylasGrantId) {
           throw new Error('Missing Nylas credentials. Please connect your email account first.');
         }
-        
+
         const params = SmartFoldersSchema.parse(args) as SmartFoldersParams;
-        const nylas = new Nylas({ apiKey: context.credentials.nylasAccessToken });
+        const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
         const emailAI = new EmailAI(); // Uses our server's OpenAI key
-        
+
         const tool = new SmartFoldersTool(
           nylas,
           context.credentials.nylasGrantId,
           emailAI
         );
-        
+
         result = await tool.execute(params);
         break;
       }
-      
-      
+
+
       default:
         return res.status(404).json({ error: `Unknown tool: ${toolName}` });
     }
-    
+
     res.json({ result });
-    
+
   } catch (error: any) {
     console.error(`Error executing ${toolName}:`, error);
-    
+
     let errorMessage = error.message;
     let statusCode = 500;
-    
+
     if (error instanceof z.ZodError) {
-      errorMessage = `Input validation error: ${error.errors.map(e => 
+      errorMessage = `Input validation error: ${error.errors.map(e =>
         `${e.path.join('.')}: ${e.message}`
       ).join(', ')}`;
       statusCode = 400;
     } else if (error.message.includes('Missing') || error.message.includes('not connected')) {
       statusCode = 401;
     }
-    
-    res.status(statusCode).json({ 
+
+    res.status(statusCode).json({
       error: errorMessage,
       code: error.code || 'TOOL_EXECUTION_ERROR'
     });
@@ -348,7 +479,7 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'healthy',
     service: 'inbox-mcp',
     version: '2.0.0',
@@ -359,12 +490,15 @@ app.get('/health', (req, res) => {
 // GET /mcp/needs-setup - Check if setup is required
 app.get('/mcp/needs-setup', (req, res) => {
   const context: RequestContext = res.locals.context;
-  const hasCredentials = !!(context.credentials.nylasAccessToken && context.credentials.nylasGrantId);
-  
+  const hasCredentials = !!(NYLAS_API_KEY && context.credentials.nylasGrantId);
+  const requestBase = `${req.protocol}://${req.get('host')}`;
+  const defaultConnectUrl = `${requestBase}/setup/connect-url`;
+
   res.json({
     needs_setup: !hasCredentials,
     has_credentials: hasCredentials,
-    setup_url: '/setup/instructions'
+    setup_url: '/setup/instructions',
+    connect_url: defaultConnectUrl
   });
 });
 
@@ -372,21 +506,21 @@ app.get('/mcp/needs-setup', (req, res) => {
 app.post('/setup/validate', async (req, res) => {
   try {
     const { nylas_api_key, nylas_grant_id } = req.body;
-    
+
     if (!nylas_api_key || !nylas_grant_id) {
       return res.status(400).json({
         success: false,
         error: 'Missing required credentials: nylas_api_key and nylas_grant_id'
       });
     }
-    
+
     // Validate credentials using SetupManager
     const setupManager = new SetupManager();
     const result = await setupManager.validateCredentials({
       nylas_api_key,
       nylas_grant_id
     });
-    
+
     res.json(result);
   } catch (error: any) {
     logger.error('Setup validation error:', error);

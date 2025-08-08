@@ -1,7 +1,6 @@
 export const E2E_CONFIG = {
   // API Configuration
   nylas: {
-    apiKey: process.env.NYLAS_ACCESS_TOKEN!,
     grantId: process.env.NYLAS_GRANT_ID!,
     testEmail: process.env.TEST_EMAIL_ADDRESS!
   },
@@ -10,14 +9,14 @@ export const E2E_CONFIG = {
     model: 'gpt-4o-mini', // Use cheaper model for tests
     graderModel: 'gpt-4o-mini'
   },
-  
+
   // Test Configuration
   timeouts: {
     default: 30000,
     approval: 60000,
     setup: 120000
   },
-  
+
   // Grading Thresholds (0-100)
   grading: {
     passingScore: 70,
@@ -29,13 +28,13 @@ export const E2E_CONFIG = {
       errorHandling: { weight: 0.2 }
     }
   },
-  
+
   // Interactive Mode
   interactive: {
     enabled: process.env.CI !== 'true',
     approvalTimeout: 30000
   },
-  
+
   // Test Data
   testData: {
     emailPrefix: '[E2E Test]',
