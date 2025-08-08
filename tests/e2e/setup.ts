@@ -5,7 +5,7 @@ dotenv.config();
 
 // Only require OpenAI API key - Nylas credentials are optional
 const requiredVars = ['OPENAI_API_KEY'];
-const optionalVars = ['NYLAS_ACCESS_TOKEN', 'NYLAS_GRANT_ID', 'TEST_EMAIL_ADDRESS'];
+const optionalVars = ['NYLAS_GRANT_ID', 'TEST_EMAIL_ADDRESS'];
 
 const missing = requiredVars.filter(v => !process.env[v]);
 if (missing.length > 0) {

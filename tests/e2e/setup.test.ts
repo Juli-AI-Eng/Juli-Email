@@ -6,13 +6,13 @@ import Nylas from 'nylas';
 describe('Setup and Onboarding E2E Tests', () => {
   let server: { port: number; stop: () => Promise<void> };
   let client: HttpTestClient;
-  
+
   beforeAll(async () => {
     if (process.env.USE_EXISTING_SERVER !== 'true') {
       server = await startTestServer();
       E2E_CONFIG.server.port = server.port;
     }
-    
+
     client = createTestClient({
       port: E2E_CONFIG.server.port,
       credentials: E2E_CONFIG.nylas
@@ -35,7 +35,7 @@ describe('Setup and Onboarding E2E Tests', () => {
 
       // Check if setup is needed
       const needsSetupResponse = await setupClient.get('/mcp/needs-setup');
-      
+
       expect(needsSetupResponse.needs_setup).toBe(true);
       expect(needsSetupResponse.has_credentials).toBe(false);
       expect(needsSetupResponse.setup_url).toBe('/setup/instructions');
@@ -51,12 +51,12 @@ describe('Setup and Onboarding E2E Tests', () => {
 
       expect(response.type).toBe('setup_instructions');
       expect(response.steps).toHaveLength(3);
-      
+
       // Verify step structure
       const firstStep = response.steps[0];
       expect(firstStep.title).toContain('Nylas Account');
       expect(firstStep.action).toBeDefined();
-      
+
       // Verify next action
       expect(response.next_action).toBeDefined();
       expect(response.next_action.endpoint).toBe('POST /setup/validate');
@@ -98,7 +98,7 @@ describe('Setup and Onboarding E2E Tests', () => {
       }
 
       const response = await client.post('/setup/validate', {
-        nylas_api_key: E2E_CONFIG.nylas!.nylasAccessToken,
+        nylas_api_key: 'server_env_key',
         nylas_grant_id: E2E_CONFIG.nylas!.nylasGrantId
       });
 
@@ -121,10 +121,10 @@ describe('Setup and Onboarding E2E Tests', () => {
       }
 
       const response = await client.listTools();
-      
+
       expect(response.tools).toBeDefined();
       expect(response.tools.length).toBeGreaterThan(0);
-      
+
       // Should have email tools available
       const emailTools = ['manage_email', 'find_emails', 'organize_inbox', 'email_insights', 'smart_folders'];
       emailTools.forEach(toolName => {
@@ -140,10 +140,10 @@ describe('Setup and Onboarding E2E Tests', () => {
       });
 
       const response = await unconfiguredClient.listTools();
-      
+
       expect(response.tools).toBeDefined();
       expect(response.tools.length).toBe(0); // No MCP tools without credentials
-      
+
       // Setup is not an MCP tool - it's a separate endpoint
       const setupTool = response.tools.find((t: any) => t.name === 'setup_email_connection');
       expect(setupTool).toBeUndefined();

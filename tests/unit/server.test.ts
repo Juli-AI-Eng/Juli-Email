@@ -29,32 +29,32 @@ import Nylas from 'nylas';
 function createTestApp() {
   // Clear module cache to ensure fresh import
   jest.resetModules();
-  
+
   // Set required environment variables
   process.env.OPENAI_API_KEY = 'test-openai-key';
   process.env.PORT = '0'; // Use random port for testing
-  
+
   // Import server code - this creates the Express app
   require('../../src/server');
-  
+
   // Return the app instance
   const app = require('express')();
-  
+
   // Copy routes from the actual server
   const actualApp = require('../../src/server.ts');
-  
+
   return app;
 }
 
 describe('HTTP Server', () => {
   let app: express.Application;
-  
+
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.OPENAI_API_KEY = 'test-openai-key';
     mockServer = null;
   });
-  
+
   afterEach(() => {
     delete process.env.OPENAI_API_KEY;
     jest.resetModules();
@@ -68,17 +68,17 @@ describe('HTTP Server', () => {
   describe('Environment validation', () => {
     it('should throw error if OPENAI_API_KEY is missing', () => {
       delete process.env.OPENAI_API_KEY;
-      
+
       // Clear the mock to test the real implementation
       jest.unmock('../../src/ai/emailAI');
       const emailAIModule = jest.requireActual('../../src/ai/emailAI') as any;
       const RealEmailAI = emailAIModule.EmailAI;
-      
+
       // Test EmailAI constructor directly
       expect(() => {
         new RealEmailAI();
       }).toThrow('OPENAI_API_KEY environment variable is required for EmailAI');
-      
+
       // Re-mock after the test
       jest.mock('../../src/ai/emailAI');
     });
@@ -90,18 +90,18 @@ describe('HTTP Server', () => {
       // For now, let's create a minimal test setup
       const testApp = express();
       testApp.get('/health', (req, res) => {
-        res.json({ 
+        res.json({
           status: 'healthy',
           service: 'inbox-mcp',
           version: '2.0.0',
           transport: 'http'
         });
       });
-      
+
       const response = await request(testApp)
         .get('/health')
         .expect(200);
-      
+
       expect(response.body).toEqual({
         status: 'healthy',
         service: 'inbox-mcp',
@@ -115,7 +115,7 @@ describe('HTTP Server', () => {
     it('should list all available tools', async () => {
       const testApp = express();
       testApp.use(express.json());
-      
+
       // Simulate the tools endpoint
       testApp.get('/mcp/tools', (req, res) => {
         res.json({
@@ -129,14 +129,14 @@ describe('HTTP Server', () => {
           ]
         });
       });
-      
+
       const response = await request(testApp)
         .get('/mcp/tools')
         .expect(200);
-      
+
       expect(response.body.tools).toBeDefined();
       expect(response.body.tools.length).toBeGreaterThan(0);
-      
+
       const toolNames = response.body.tools.map((t: any) => t.name);
       expect(toolNames).toContain('setup');
       expect(toolNames).toContain('manage_email');
@@ -149,7 +149,7 @@ describe('HTTP Server', () => {
       it('should extract Nylas credentials from headers', async () => {
         const testApp = express();
         testApp.use(express.json());
-        
+
         // Mock middleware to capture extracted credentials
         let capturedCredentials: any = null;
         testApp.use((req, res, next) => {
@@ -161,11 +161,8 @@ describe('HTTP Server', () => {
                   .replace('x-user-credential-', '')
                   .replace(/-/g, '_')
                   .toUpperCase();
-                
+
                 switch (credKey) {
-                  case 'NYLAS_ACCESS_TOKEN':
-                    credentials.nylasAccessToken = value;
-                    break;
                   case 'NYLAS_GRANT_ID':
                     credentials.nylasGrantId = value;
                     break;
@@ -174,33 +171,31 @@ describe('HTTP Server', () => {
             }
             return credentials;
           };
-          
+
           capturedCredentials = extractCredentials(req.headers);
           res.locals.context = { credentials: capturedCredentials };
           next();
         });
-        
+
         testApp.post('/mcp/tools/test', (req, res) => {
           res.json({ credentials: res.locals.context.credentials });
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/test')
-          .set('X-User-Credential-NYLAS_ACCESS_TOKEN', 'test-token')
           .set('X-User-Credential-NYLAS_GRANT_ID', 'test-grant')
           .send({ arguments: {} })
           .expect(200);
-        
+
         expect(response.body.credentials).toEqual({
-          nylasAccessToken: 'test-token',
           nylasGrantId: 'test-grant'
         });
       });
-      
+
       it('should not extract OpenAI key from headers', async () => {
         const testApp = express();
         testApp.use(express.json());
-        
+
         // Use the actual credential extraction logic from the server
         testApp.use((req, res, next) => {
           const extractCredentials = (headers: any) => {
@@ -211,12 +206,9 @@ describe('HTTP Server', () => {
                   .replace('x-user-credential-', '')
                   .replace(/-/g, '_')
                   .toUpperCase();
-                
+
                 // Only extract Nylas credentials
                 switch (credKey) {
-                  case 'NYLAS_ACCESS_TOKEN':
-                    credentials.nylasAccessToken = value;
-                    break;
                   case 'NYLAS_GRANT_ID':
                     credentials.nylasGrantId = value;
                     break;
@@ -225,26 +217,24 @@ describe('HTTP Server', () => {
             }
             return credentials;
           };
-          
+
           res.locals.context = { credentials: extractCredentials(req.headers) };
           next();
         });
-        
+
         testApp.post('/mcp/tools/test', (req, res) => {
           res.json({ credentials: res.locals.context.credentials });
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/test')
           .set('X-User-Credential-OPENAI_API_KEY', 'should-not-extract')
-          .set('X-User-Credential-NYLAS_ACCESS_TOKEN', 'test-token')
           .send({ arguments: {} })
           .expect(200);
-        
+
         // Verify OpenAI key is NOT extracted
         expect(response.body.credentials.openaiApiKey).toBeUndefined();
-        // But Nylas credentials are extracted
-        expect(response.body.credentials.nylasAccessToken).toBe('test-token');
+        // Access token is not used anymore; nothing to check here
       });
     });
 
@@ -254,57 +244,57 @@ describe('HTTP Server', () => {
           type: 'setup_success',
           message: 'Setup completed successfully'
         });
-        
+
         (SetupManager as jest.MockedClass<typeof SetupManager>).mockImplementation(
           () => ({ handleSetup: mockHandleSetup } as any)
         );
-        
+
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.post('/mcp/tools/setup', async (req, res) => {
           const setupManager = new SetupManager();
           const result = await setupManager.handleSetup(req.body.arguments);
           res.json({ result });
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/setup')
           .send({
             arguments: { action: 'start' }
           })
           .expect(200);
-        
+
         expect(response.body.result.type).toBe('setup_success');
         expect(mockHandleSetup).toHaveBeenCalledWith({ action: 'start' });
       });
-      
+
       it('should return error for missing credentials', async () => {
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.use((req, res, next) => {
           res.locals.context = { credentials: {} };
           next();
         });
-        
+
         testApp.post('/mcp/tools/manage_email', (req, res) => {
           const context = res.locals.context;
-          if (!context.credentials.nylasAccessToken || !context.credentials.nylasGrantId) {
+          if (!context.credentials.nylasGrantId) {
             return res.status(401).json({
               error: 'Missing Nylas credentials. Please connect your email account first.',
               code: 'MISSING_CREDENTIALS'
             });
           }
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/manage_email')
           .send({
             arguments: { action: 'send', query: 'test' }
           })
           .expect(401);
-        
+
         expect(response.body.error).toContain('Missing Nylas credentials');
       });
     });
@@ -327,30 +317,29 @@ describe('HTTP Server', () => {
             details: { to: ['test@example.com'] }
           }
         });
-        
+
         (ManageEmailTool as jest.MockedClass<typeof ManageEmailTool>).mockImplementation(
           () => ({ execute: mockExecute } as any)
         );
-        
+
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.use((req, res, next) => {
           res.locals.context = {
             credentials: {
-              nylasAccessToken: 'test-token',
               nylasGrantId: 'test-grant'
             }
           };
           next();
         });
-        
+
         testApp.post('/mcp/tools/manage_email', async (req, res) => {
           const tool = new ManageEmailTool(null as any, 'test-grant', null as any);
           const result = await tool.execute(req.body.arguments);
           res.json({ result });
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/manage_email')
           .send({
@@ -360,42 +349,41 @@ describe('HTTP Server', () => {
             }
           })
           .expect(200);
-        
+
         expect(response.body.result.needs_approval).toBe(true);
         expect(response.body.result.action_type).toBe('send_email');
         expect(response.body.result.action_data).toBeDefined();
       });
-      
+
       it('should execute approved action', async () => {
         const mockExecute = jest.fn<(args: any) => Promise<any>>().mockResolvedValue({
           success: true,
           message: 'Email sent successfully',
           message_id: 'msg_123'
         });
-        
+
         (ManageEmailTool as jest.MockedClass<typeof ManageEmailTool>).mockImplementation(
           () => ({ execute: mockExecute } as any)
         );
-        
+
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.use((req, res, next) => {
           res.locals.context = {
             credentials: {
-              nylasAccessToken: 'test-token',
               nylasGrantId: 'test-grant'
             }
           };
           next();
         });
-        
+
         testApp.post('/mcp/tools/manage_email', async (req, res) => {
           const tool = new ManageEmailTool(null as any, 'test-grant', null as any);
           const result = await tool.execute(req.body.arguments);
           res.json({ result });
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/manage_email')
           .send({
@@ -413,7 +401,7 @@ describe('HTTP Server', () => {
             }
           })
           .expect(200);
-        
+
         expect(response.body.result.success).toBe(true);
         expect(mockExecute).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -427,24 +415,23 @@ describe('HTTP Server', () => {
     describe('Error handling', () => {
       it('should handle tool execution errors', async () => {
         const mockExecute = jest.fn<(args: any) => Promise<any>>().mockRejectedValue(new Error('Test error'));
-        
+
         (FindEmailsTool as jest.MockedClass<typeof FindEmailsTool>).mockImplementation(
           () => ({ execute: mockExecute } as any)
         );
-        
+
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.use((req, res, next) => {
           res.locals.context = {
             credentials: {
-              nylasAccessToken: 'test-token',
               nylasGrantId: 'test-grant'
             }
           };
           next();
         });
-        
+
         testApp.post('/mcp/tools/find_emails', async (req, res) => {
           try {
             const tool = new FindEmailsTool(null as any, 'test-grant', null as any);
@@ -457,22 +444,22 @@ describe('HTTP Server', () => {
             });
           }
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/find_emails')
           .send({
             arguments: { query: 'test' }
           })
           .expect(500);
-        
+
         expect(response.body.error).toBe('Test error');
         expect(response.body.code).toBe('TOOL_EXECUTION_ERROR');
       });
-      
+
       it('should handle validation errors', async () => {
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.post('/mcp/tools/manage_email', (req, res) => {
           // Simulate Zod validation error
           const validActions = ['send', 'reply', 'forward', 'draft'];
@@ -483,7 +470,7 @@ describe('HTTP Server', () => {
             });
           }
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/manage_email')
           .send({
@@ -493,23 +480,23 @@ describe('HTTP Server', () => {
             }
           })
           .expect(400);
-        
+
         expect(response.body.error).toContain('Input validation error');
       });
-      
+
       it('should handle unknown tool error', async () => {
         const testApp = express();
         testApp.use(express.json());
-        
+
         testApp.post('/mcp/tools/:toolName', (req, res) => {
           res.status(404).json({ error: `Unknown tool: ${req.params.toolName}` });
         });
-        
+
         const response = await request(testApp)
           .post('/mcp/tools/unknown_tool')
           .send({ arguments: {} })
           .expect(404);
-        
+
         expect(response.body.error).toBe('Unknown tool: unknown_tool');
       });
     });

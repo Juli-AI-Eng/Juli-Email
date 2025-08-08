@@ -229,9 +229,9 @@ Examples:
               type: "array",
               items: {
                 type: "string",
-                description: "Email address"
+                description: "Email address or contact name (e.g., 'john@example.com' or 'Sarah')"
               },
-              description: "List of recipient email addresses"
+              description: "List of recipient email addresses or contact names to be resolved"
             },
             subject: {
               type: "string",
@@ -263,6 +263,12 @@ Examples:
     }];
 
     const systemPrompt = `You are an email assistant. Analyze the user's request and extract email intent information.
+    
+    IMPORTANT: Recipients can be specified as either:
+    - Full email addresses (e.g., "john@example.com")
+    - Contact names (e.g., "Sarah", "John Smith") which will be resolved later
+    
+    When the user mentions people by name only (like "email Sarah"), extract the name as-is in the recipients array.
     ${context?.senderEmail ? `Context: The user wants to reply to an email from ${context.senderEmail}` : ''}`;
 
     if (this.debugMode) {

@@ -19,16 +19,15 @@ Comprehensive documentation for all tools available in the Inbox MCP server, inc
 
 ### How Credentials Work
 
-1. **Setup Phase**: The setup tool only **validates** credentials - it does not store them
-2. **Storage**: Juli securely stores all user credentials after validation
-3. **Runtime**: Juli sends credentials with **every single request** via HTTP headers
+1. **Hosted Auth**: Users authenticate via Nylas Hosted Auth; server keeps API key in env
+2. **Storage**: Juli securely stores only the user's `grant_id`
+3. **Runtime**: Juli sends `X-User-Credential-NYLAS_GRANT_ID` with every request
 
 ### Required Headers for All Tools
 
-Every request to email tools (except setup) must include these headers:
+Every request to email tools must include this header:
 
 ```http
-X-User-Credential-NYLAS_ACCESS_TOKEN: nyk_your_api_key_here
 X-User-Credential-NYLAS_GRANT_ID: your_grant_id_here
 ```
 
@@ -44,119 +43,53 @@ If credentials are missing from headers, all email tools will return:
 
 ---
 
-## Setup Tool
+## Connect your email (Hosted Auth)
 
-**Endpoint**: `POST /mcp/tools/setup`
+Hosted Auth keeps the Nylas API key on the server and returns a per-user `grant_id`.
 
-The setup tool **validates** user credentials but does **NOT store them**. It provides a multi-step wizard experience to help users connect their email account via Nylas.
+### 1) Detect if setup is needed
 
-**Important**: This tool only tests if credentials work. Juli handles all credential storage and sends them with every request via HTTP headers.
+Request:
+```bash
+curl -s https://juli-ai.com/mcp/needs-setup
+```
 
-### Parameters
-
-```typescript
+Response when not connected:
+```json
 {
-  action: "get_instructions" | "validate_credentials" | "test_connection",
-  credentials?: {
-    NYLAS_ACCESS_TOKEN?: string,
-    NYLAS_GRANT_ID?: string
-  }
+  "needs_setup": true,
+  "has_credentials": false,
+  "setup_url": "/setup/instructions",
+  "connect_url": "/setup/connect-url"
 }
 ```
 
-### Actions
+### 2) Get the Hosted Auth URL
 
-#### `get_instructions`
-Returns step-by-step setup instructions.
-
-**Request**:
-```json
-{
-  "action": "get_instructions"
-}
+Request (prod):
+```bash
+curl -s "https://juli-ai.com/setup/connect-url?redirect_uri=https%3A%2F%2Fjuli-ai.com%2Fapi%2Fnylas-email%2Fcallback&scope=openid,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/calendar&prompt=detect,select_provider"
 ```
 
-**Response**:
+Response:
 ```json
-{
-  "type": "setup_instructions",
-  "steps": [
-    {
-      "title": "Create Your Nylas Account",
-      "description": "Sign up for a free Nylas account",
-      "url": "https://dashboard-v3.nylas.com/register",
-      "tips": [
-        "Use the email you want to connect",
-        "No credit card required"
-      ]
-    },
-    {
-      "title": "Get Your API Key",
-      "description": "Find your API key in the dashboard",
-      "tips": ["Look for 'API Keys' in the sidebar"]
-    },
-    {
-      "title": "Connect Your Email",
-      "description": "Add your email account as a grant",
-      "tips": ["Click 'Add Test Grant'", "Authorize all permissions"]
-    }
-  ]
-}
+{ "url": "https://api.us.nylas.com/v3/connect/auth?..." }
 ```
 
-#### `validate_credentials`
-**Tests** provided Nylas credentials by attempting to connect to the user's email. **Does not store credentials** - only validates they work.
+Open the `url` in a browser to complete provider login.
 
-**Request**:
+### 3) Callback returns your grant
+
+After login, the server responds at the callback with:
 ```json
-{
-  "action": "validate_credentials",
-  "credentials": {
-    "NYLAS_ACCESS_TOKEN": "nyk_abc123...",
-    "NYLAS_GRANT_ID": "grant_123..."
-  }
-}
+{ "success": true, "grant_id": "86a3c08f-...", "email": "user@example.com" }
 ```
 
-**Success Response**:
-```json
-{
-  "valid": true,
-  "message": "Successfully connected to your email!",
-  "email_address": "user@example.com",
-  "provider": "gmail"
-  // NOTE: MCP server does NOT store these credentials
-  // Juli will store them and send with every future request
-}
-```
+### 4) Use the tools
 
-**Error Response**:
-```json
-{
-  "valid": false,
-  "error": "Invalid API key",
-  "suggestion": "Check your API key starts with 'nyk_'"
-}
-```
-
-#### `test_connection`
-Tests the email connection after setup.
-
-**Request**:
-```json
-{
-  "action": "test_connection"
-}
-```
-
-**Response**:
-```json
-{
-  "connected": true,
-  "email_count": 1247,
-  "oldest_email": "2020-01-15",
-  "provider": "gmail"
-}
+Send the header on every request:
+```http
+X-User-Credential-NYLAS_GRANT_ID: <grant_id>
 ```
 
 ---

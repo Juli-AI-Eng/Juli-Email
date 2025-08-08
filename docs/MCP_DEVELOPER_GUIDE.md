@@ -49,111 +49,29 @@ Juli implements a secure, user-friendly authentication system that makes using M
     credentials once        credentials              per request
 ```
 
-### Credential Types
+### Setup Flow (Hosted Auth)
 
-Juli supports multiple credential patterns:
-
-#### 1. API Key Pattern
-```typescript
-// User provides
-{
-  "api_key": "sk-1234567890abcdef"
-}
-
-// Juli sends in headers
-headers: {
-  "X-User-Credential-API_KEY": "sk-1234567890abcdef"
-}
-```
-
-#### 2. Multi-Field Pattern
-```typescript
-// User provides
-{
-  "client_id": "your-app-id",
-  "client_secret": "your-app-secret",
-  "workspace_id": "user-workspace"
-}
-
-// Juli sends in headers
-headers: {
-  "X-User-Credential-CLIENT_ID": "your-app-id",
-  "X-User-Credential-CLIENT_SECRET": "your-app-secret",
-  "X-User-Credential-WORKSPACE_ID": "user-workspace"
-}
-```
-
-#### 3. OAuth2 Pattern
-```typescript
-// User completes OAuth flow
-{
-  "access_token": "bearer-token",
-  "refresh_token": "refresh-token",
-  "expires_at": 1234567890
-}
-
-// Juli handles refresh automatically
-headers: {
-  "X-User-Credential-ACCESS_TOKEN": "bearer-token"
-}
-```
-
-### Setup Flow
-
-**Important**: Setup tools only **validate** credentials - they don't store them. Juli handles all storage and sends credentials with every request.
+Important: Users authenticate via Nylas Hosted Auth. The server keeps `NYLAS_API_KEY` in env and returns a `grant_id`. MCP servers are stateless and never store per-user credentials.
 
 When a user first installs your MCP:
 
 ```typescript
-// 1. Juli calls your needs-setup endpoint
+// 1) Juli checks if setup is needed
 GET /mcp/needs-setup
-Response: {
-  "needs_setup": true,
-  "auth_type": "api_key",
-  "setup_url": "/mcp/tools/setup",
-  "service_name": "Your Service"
-}
+Response: { "needs_setup": true, "connect_url": "/setup/connect-url" }
 
-// 2. User runs setup tool
-POST /mcp/tools/setup
-Body: {
-  "action": "get_instructions"
-}
-Response: {
-  "type": "setup_instructions",
-  "steps": [...],
-  "validation_endpoint": "validate_credentials"
-}
+// 2) Juli fetches the Hosted Auth URL
+GET /setup/connect-url?redirect_uri=https://yourapp.com/api/nylas-email/callback
+Response: { "url": "https://api.us.nylas.com/v3/connect/auth?..." }
 
-// 3. User provides credentials - MCP server VALIDATES ONLY
-POST /mcp/tools/setup
-Body: {
-  "action": "validate_credentials",
-  "credentials": {
-    "api_key": "provided-key"
-  }
-}
-Response: {
-  "valid": true,
-  "message": "Credentials validated successfully"
-  // NOTE: MCP server does NOT store these credentials
-}
+// 3) User completes provider login; callback returns the grant
+GET /api/nylas-email/callback?code=...
+Response: { "success": true, "grant_id": "...", "email": "user@example.com" }
 
-// 4. Juli stores credentials securely (not your MCP server)
-// 5. Every future request includes credentials in headers
-POST /mcp/tools/your_tool
-Headers: {
-  "X-User-Credential-API_KEY": "provided-key"  // Juli sends this every time
-}
+// 4) Juli stores only the grant_id
+// 5) Every future request includes:
+Headers: { "X-User-Credential-NYLAS_GRANT_ID": "..." }
 ```
-
-**Key Points:**
-- **MCP servers are stateless** - never store user credentials
-- **Setup tools validate only** - test if credentials work, then return success/failure
-- **Juli handles storage** - credentials are encrypted and managed by Juli
-- **Every request includes credentials** - sent via HTTP headers automatically
-
-## MCP Protocol Specification
 
 ### Request Format
 
@@ -165,17 +83,12 @@ Headers: {
   "Content-Type": "application/json",
   "X-Request-ID": "unique-request-id",
   "X-User-ID": "juli-user-id",
-  "X-User-Credential-*": "credential-values"
+  "X-User-Credential-NYLAS_GRANT_ID": "uuid"
 }
 Body: {
   // Tool-specific parameters
   "param1": "value1",
-  "param2": "value2",
-  
-  // Context injection (if configured)
-  "user_name": "John Doe",
-  "user_email": "john@example.com",
-  "user_timezone": "America/New_York"
+  "param2": "value2"
 }
 ```
 
@@ -185,13 +98,7 @@ Body: {
 ```typescript
 {
   "success": true,
-  "data": {
-    // Tool-specific response data
-  },
-  "metadata": {
-    "duration_ms": 234,
-    "tokens_used": 150
-  }
+  "data": {}
 }
 ```
 
@@ -199,12 +106,7 @@ Body: {
 ```typescript
 {
   "error": "User-friendly error message",
-  "error_code": "RATE_LIMIT_EXCEEDED",
-  "details": {
-    "retry_after": 60,
-    "limit": 100,
-    "current": 101
-  }
+  "error_code": "RATE_LIMIT_EXCEEDED"
 }
 ```
 
@@ -213,26 +115,7 @@ Body: {
 {
   "needs_setup": true,
   "message": "Please complete setup to use this tool",
-  "setup_tool": "setup_service"
-}
-```
-
-#### Approval Required Response
-```typescript
-{
-  "needs_approval": true,
-  "action_type": "delete_data",
-  "action_data": {
-    // Complete data needed to execute action
-  },
-  "preview": {
-    "summary": "Delete 42 old records",
-    "details": {
-      "records_affected": 42,
-      "oldest_date": "2023-01-01"
-    },
-    "risks": ["This action cannot be undone"]
-  }
+  "connect_url": "/setup/connect-url"
 }
 ```
 
@@ -304,18 +187,13 @@ Available context fields:
 
 ### Critical Design Principle: Stateless Credential Handling
 
-**🚨 Important**: MCP servers must be completely stateless regarding user credentials.
+MCP servers are stateless regarding user credentials. Extract credentials from headers per request and never store them.
 
 ```typescript
-// ❌ NEVER DO THIS - Don't store credentials
-const userCredentials = new Map(); // NO!
-userCredentials.set(userId, credentials); // NO!
-
-// ✅ ALWAYS DO THIS - Extract from headers per request
 function handleRequest(req) {
   const credentials = extractCredentials(req.headers);
-  const client = new ServiceClient(credentials.api_key);
-  return client.doWork();
+  const client = new ServiceClient(process.env.NYLAS_API_KEY);
+  return client.doWork(credentials.nylas_grant_id);
 }
 ```
 
@@ -689,18 +567,15 @@ describe('MCP Server', () => {
     expect(needsSetup.body.needs_setup).toBe(true);
     
     // 2. Get instructions
-    const instructions = await fetch('/mcp/tools/setup', {
-      method: 'POST',
-      body: { action: 'get_instructions' }
-    });
+    const instructions = await fetch('/setup/instructions');
     expect(instructions.body.steps).toHaveLength(3);
     
     // 3. Validate credentials
-    const validation = await fetch('/mcp/tools/setup', {
+    const validation = await fetch('/setup/validate', {
       method: 'POST',
       body: {
-        action: 'validate_credentials',
-        credentials: { api_key: 'test-key' }
+        nylas_api_key: 'env_server_key',
+        nylas_grant_id: 'user_grant_id'
       }
     });
     expect(validation.body.valid).toBe(true);

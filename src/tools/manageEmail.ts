@@ -39,29 +39,49 @@ export class ManageEmailTool {
       await this.fetchSenderInfo();
     }
 
-    // Process the natural language query
-    const context = await this.getContext(params);
-    const intent = await this.emailAI.understandQuery(params.query, context);
+    try {
+      // Process the natural language query
+      const context = await this.getContext(params);
+      const intent = await this.emailAI.understandQuery(params.query, context);
 
-    // Generate email content based on intent
-    const emailContent = await this.generateContent(intent, params, context);
+      // Generate email content based on intent
+      const emailContent = await this.generateContent(intent, params, context);
 
-    // Handle different actions
-    switch (params.action) {
-      case 'send':
-      case 'reply':
-      case 'forward':
-        if (params.require_approval !== false) {
-          return this.createStatelessApprovalRequest(emailContent, params, intent);
-        } else {
-          return this.sendEmail(emailContent);
-        }
+      // Handle different actions
+      switch (params.action) {
+        case 'send':
+        case 'reply':
+        case 'forward':
+          if (params.require_approval !== false) {
+            return this.createStatelessApprovalRequest(emailContent, params, intent);
+          } else {
+            return this.sendEmail(emailContent);
+          }
+        
+        case 'draft':
+          return this.createDraft(emailContent);
+        
+        default:
+          throw new Error(`Unknown action: ${params.action}`);
+      }
+    } catch (error: any) {
+      // Check if it's a contact resolution error
+      if (error.message && error.message.includes('Could not find email addresses for:')) {
+        // Return a user-friendly error response
+        return {
+          success: false,
+          error: 'contact_not_found',
+          message: error.message,
+          suggestions: [
+            'Use the full email address (e.g., sarah@example.com)',
+            'Check if the contact exists in your address book',
+            'Try a more specific name if multiple people share the same first name'
+          ]
+        };
+      }
       
-      case 'draft':
-        return this.createDraft(emailContent);
-      
-      default:
-        throw new Error(`Unknown action: ${params.action}`);
+      // Re-throw other errors
+      throw error;
     }
   }
 
@@ -102,7 +122,33 @@ export class ManageEmailTool {
     const senderName = senderMatch[1];
     
     try {
-      // Search for recent messages from this sender
+      // First, try to find contacts with this name
+      const contacts = await this.lookupContactsByName(senderName);
+      
+      if (contacts.length > 0) {
+        // Search for messages from the resolved email addresses
+        for (const contact of contacts) {
+          const messages = await this.nylas.messages.list({
+            identifier: this.grantId,
+            queryParams: {
+              from: [contact.email],
+              limit: 5
+            }
+          });
+
+          if (messages.data.length > 0) {
+            // Get full message details
+            const fullMessage = await this.nylas.messages.find({
+              identifier: this.grantId,
+              messageId: messages.data[0].id
+            });
+            console.log(`✅ Found message from ${contact.name} (${contact.email})`);
+            return fullMessage.data as Email;
+          }
+        }
+      }
+      
+      // Fallback: Try searching by name in the message content
       const messages = await this.nylas.messages.list({
         identifier: this.grantId,
         queryParams: {
@@ -183,6 +229,92 @@ export class ManageEmailTool {
     return null;
   }
 
+  private async lookupContactsByName(name: string): Promise<Array<{ email: string; name: string }>> {
+    const results: Array<{ email: string; name: string }> = [];
+    const searchName = name.toLowerCase().trim();
+    
+    try {
+      // Search in all three sources: address_book, domain, and inbox
+      const sources = ['address_book', 'domain', 'inbox'] as const;
+      
+      for (const source of sources) {
+        try {
+          // Fetch contacts from each source with a reasonable limit
+          const contacts = await this.nylas.contacts.list({
+            identifier: this.grantId,
+            queryParams: {
+              source: source as any,
+              limit: 100  // Reasonable limit to avoid too many API calls
+            }
+          });
+
+          // Search through each contact's name fields
+          for (const contact of contacts.data) {
+            const emails = contact.emails || [];
+            if (emails.length === 0) continue;
+
+            // Build possible name variations to search
+            const nameVariations: string[] = [];
+            
+            // Full name from parts
+            const nameParts = [
+              contact.givenName,
+              contact.middleName,
+              contact.surname
+            ].filter(Boolean);
+            if (nameParts.length > 0) {
+              nameVariations.push(nameParts.join(' '));
+            }
+            
+            // Individual name parts
+            if (contact.givenName) nameVariations.push(contact.givenName);
+            if (contact.surname) nameVariations.push(contact.surname);
+            if (contact.nickname) nameVariations.push(contact.nickname);
+            if (contact.displayName) nameVariations.push(contact.displayName);
+            
+            // Check if any name variation matches our search
+            const matches = nameVariations.some(variation => 
+              variation.toLowerCase().includes(searchName) ||
+              searchName.includes(variation.toLowerCase())
+            );
+            
+            if (matches) {
+              // Get the best display name for this contact
+              const displayName = contact.displayName || 
+                                  (nameParts.length > 0 ? nameParts.join(' ') : null) ||
+                                  contact.nickname ||
+                                  contact.givenName ||
+                                  emails[0].email;
+              
+              // Add all email addresses for this contact
+              for (const email of emails) {
+                if (email.email) {
+                  results.push({
+                    email: email.email,
+                    name: displayName
+                  });
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching contacts from source ${source}:`, error);
+          // Continue with other sources even if one fails
+        }
+      }
+      
+      // Remove duplicates based on email
+      const uniqueResults = Array.from(
+        new Map(results.map(item => [item.email, item])).values()
+      );
+      
+      return uniqueResults;
+    } catch (error) {
+      console.error('Error looking up contacts by name:', error);
+      return [];
+    }
+  }
+
   private async fetchSenderInfo(): Promise<void> {
     try {
       // Fetch grant information to get sender's email
@@ -221,7 +353,45 @@ export class ManageEmailTool {
   ): Promise<GeneratedEmail> {
     const originalMessage = context?.originalMessage;
     
-    // Lookup contact names for recipients
+    // First, resolve any name-based recipients to email addresses
+    const resolvedRecipients: string[] = [];
+    const unresolvedNames: string[] = [];
+    
+    if (intent.recipients && intent.recipients.length > 0) {
+      for (const recipient of intent.recipients) {
+        // Check if it looks like an email address (contains @)
+        if (recipient.includes('@')) {
+          resolvedRecipients.push(recipient);
+        } else {
+          // It's likely a name, try to resolve it
+          const contacts = await this.lookupContactsByName(recipient);
+          
+          if (contacts.length === 0) {
+            unresolvedNames.push(recipient);
+          } else if (contacts.length === 1) {
+            // Single match, use it
+            resolvedRecipients.push(contacts[0].email);
+            console.log(`✅ Resolved "${recipient}" to ${contacts[0].email}`);
+          } else {
+            // Multiple matches, for now use the first one but log a warning
+            // In a future enhancement, we could ask for clarification
+            resolvedRecipients.push(contacts[0].email);
+            console.log(`⚠️ Multiple contacts found for "${recipient}", using ${contacts[0].email}`);
+            console.log('Other matches:', contacts.slice(1).map(c => `${c.name} (${c.email})`).join(', '));
+          }
+        }
+      }
+    }
+    
+    // If we couldn't resolve some names, throw an error
+    if (unresolvedNames.length > 0) {
+      throw new Error(`Could not find email addresses for: ${unresolvedNames.join(', ')}. Please use full email addresses or ensure the contacts exist in your address book.`);
+    }
+    
+    // Update intent with resolved email addresses
+    intent.recipients = resolvedRecipients;
+    
+    // Lookup contact names for recipients (to get proper display names)
     const recipientNames: { [email: string]: string } = {};
     if (intent.recipients && intent.recipients.length > 0) {
       await Promise.all(

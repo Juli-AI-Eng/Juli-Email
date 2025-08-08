@@ -9,7 +9,6 @@ export interface E2EConfig {
     port: number;
   };
   nylas?: {
-    nylasAccessToken: string;
     nylasGrantId: string;
   };
   testTimeout: number;
@@ -32,8 +31,7 @@ export const E2E_CONFIG: E2EConfig = {
     url: process.env.SERVER_URL || 'http://localhost',
     port: parseInt(process.env.PORT || '3000', 10)
   },
-  nylas: process.env.NYLAS_ACCESS_TOKEN && process.env.NYLAS_GRANT_ID ? {
-    nylasAccessToken: process.env.NYLAS_ACCESS_TOKEN,
+  nylas: process.env.NYLAS_GRANT_ID ? {
     nylasGrantId: process.env.NYLAS_GRANT_ID
   } : undefined,
   testTimeout: parseInt(process.env.TEST_TIMEOUT || '30000', 10),
@@ -59,5 +57,5 @@ export function shouldRunE2ETests(): boolean {
 
 // Helper to check if Nylas integration tests should run
 export function hasNylasCredentials(): boolean {
-  return !!E2E_CONFIG.nylas?.nylasAccessToken && !!E2E_CONFIG.nylas?.nylasGrantId;
+  return !!E2E_CONFIG.nylas?.nylasGrantId;
 }

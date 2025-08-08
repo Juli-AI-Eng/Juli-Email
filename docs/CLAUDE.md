@@ -14,16 +14,15 @@ We are converting Inbox MCP from stdio-based single-user to HTTP-only multi-user
 2. **Multi-User Support**:
    - Single HTTP server instance handles ALL users
    - User credentials injected per-request via HTTP headers
-   - Headers: `X-User-Credential-NYLAS_ACCESS_TOKEN`, `X-User-Credential-NYLAS_GRANT_ID`
+   - Headers: `X-User-Credential-NYLAS_GRANT_ID`
    - No process spawning, no per-user instances
 
 3. **Credential Management**:
-   - **NO LOCAL STORAGE**: No .env files, no local credential saving
-   - Juli handles ALL credential storage and management
-   - Credentials passed fresh with every HTTP request
-   - SetupManager only validates, never stores
+   - **NO LOCAL STORAGE**: No user credential storage on the server
+   - Juli stores only the user `grant_id` and injects it per request
+   - Nylas API key is a server environment variable
+   - SetupManager may validate but does not store credentials
    - **OpenAI API Key**: MCP server provider's responsibility (from environment)
-   - Only Nylas credentials passed via headers
 
 4. **Stateless Architecture**:
    - No global state or cached clients
@@ -568,11 +567,10 @@ MCP → Juli: {
 
 #### 3. Future Connections
 ```typescript
-// Juli provides stored credentials automatically
-Juli → MCP: Connect with userId="user123", credentials={
-  nylas_api_key: "decrypted_key",
-  nylas_grant_id: "grant_id"
-}
+      // Juli provides stored credentials automatically (grant only)
+      Juli → MCP: Connect with userId="user123", headers={
+        'X-User-Credential-NYLAS_GRANT_ID': 'grant_id'
+      }
 
 // MCP initializes normally
 MCP: Ready to handle email operations
@@ -815,17 +813,13 @@ class AIEmailAssistantMCP extends McpServer {
 
 ## Implementation Architecture
 
-### Credential Flow
+### Credential Flow (Hosted Auth)
 
 ```typescript
 // MCP server receives credentials from Juli
 interface MCPContext {
   userId: string;
-  credentials?: {
-    nylas_api_key?: string;
-    nylas_grant_id?: string;
-  };
-  approvalToken?: string;
+  credentials?: { nylas_grant_id?: string };
 }
 
 class AIEmailAssistantMCP extends McpServer {
@@ -833,23 +827,18 @@ class AIEmailAssistantMCP extends McpServer {
   private emailAI: EmailAI;
   
   async initialize(context: MCPContext) {
-    if (!context.credentials?.nylas_api_key) {
-      // Return setup needed response
+    if (!process.env.NYLAS_API_KEY || !context.credentials?.nylas_grant_id) {
       return this.setupNeededResponse();
     }
-    
-    // Initialize with provided credentials
-    this.nylas = new Nylas({ 
-      apiKey: context.credentials.nylas_api_key 
-    });
+    this.nylas = new Nylas({ apiKey: process.env.NYLAS_API_KEY });
     this.grantId = context.credentials.nylas_grant_id;
   }
   
   private setupNeededResponse() {
     return {
       type: "needs_configuration",
-      tools_available: ["setup_email_connection"],
-      message: "Email not connected. Use 'setup_email_connection' to get started.",
+      connect_url: "/setup/connect-url",
+      message: "Email not connected. Open connect_url to authenticate.",
       documentation_url: "/docs/email-setup"
     };
   }

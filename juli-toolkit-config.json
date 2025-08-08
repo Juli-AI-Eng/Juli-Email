@@ -1,19 +1,12 @@
 {
   "toolkit_type": "mcp_server",
-  "name": "Inbox MCP",
+  "app_store_name": "Juli Email",
+  "ai_visible_name": "email_assistant",
   "description": "AI-powered email assistant that manages your inbox with natural language. Send, organize, and analyze emails intelligently.",
   "version": "1.0.0",
   "base_url": "https://inbox-mcp.juli-ai.com",
   "credential_config": {
     "required": [
-      {
-        "key": "NYLAS_ACCESS_TOKEN",
-        "display_name": "Nylas API Key",
-        "description": "Your Nylas API key for email access (starts with 'nyk_')",
-        "type": "string",
-        "validation_pattern": "^nyk_[a-zA-Z0-9]+$",
-        "sensitive": true
-      },
       {
         "key": "NYLAS_GRANT_ID",
         "display_name": "Nylas Grant ID",
@@ -50,7 +43,8 @@
       "response": {
         "needs_setup_true": {
           "needs_setup": true,
-          "message": "Please complete setup first"
+          "message": "Please complete setup first",
+          "connect_url": "/setup/connect-url"
         },
         "needs_setup_false": {
           "needs_setup": false
@@ -61,7 +55,6 @@
       "path": "/mcp/tools",
       "method": "GET",
       "headers": {
-        "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
         "X-User-Credential-NYLAS_GRANT_ID": "string"
       },
       "response": {
@@ -83,7 +76,6 @@
       "path": "/mcp/tools/{toolName}",
       "method": "POST",
       "headers": {
-        "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
         "X-User-Credential-NYLAS_GRANT_ID": "string",
         "Content-Type": "application/json"
       },
@@ -110,94 +102,6 @@
   },
   "tools": [
     {
-      "name": "setup",
-      "description": "Connect your email account with step-by-step guidance and automatic verification",
-      "auth_required": false,
-      "setup_tool": true,
-      "api_call": {
-        "path": "/mcp/tools/setup",
-        "method": "POST",
-        "headers": {
-          "Content-Type": "application/json"
-        },
-        "body_schema": {
-          "arguments": {
-            "action": {
-              "type": "string",
-              "enum": [
-                "get_instructions",
-                "validate_credentials",
-                "test_connection"
-              ]
-            },
-            "credentials": {
-              "type": "object",
-              "properties": {
-                "NYLAS_ACCESS_TOKEN": {
-                  "type": "string"
-                },
-                "NYLAS_GRANT_ID": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "get_instructions": {
-            "type": "setup_instructions",
-            "steps": [
-              "array_of_setup_steps"
-            ],
-            "external_service": {
-              "name": "string",
-              "signup_url": "string"
-            }
-          },
-          "validate_credentials": {
-            "valid": "boolean",
-            "message": "string",
-            "email_address": "string_if_valid"
-          },
-          "test_connection": {
-            "connected": "boolean",
-            "email_count": "number"
-          }
-        }
-      },
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "get_instructions",
-              "validate_credentials",
-              "test_connection"
-            ],
-            "description": "What setup action to perform"
-          },
-          "credentials": {
-            "type": "object",
-            "description": "Credentials to validate (only for validate_credentials action)",
-            "properties": {
-              "NYLAS_ACCESS_TOKEN": {
-                "type": "string",
-                "description": "Your Nylas API key"
-              },
-              "NYLAS_GRANT_ID": {
-                "type": "string",
-                "description": "Your Nylas grant ID"
-              }
-            }
-          }
-        },
-        "required": [
-          "action"
-        ]
-      }
-    },
-    {
       "name": "manage_email",
       "description": "Send, reply, forward, or draft emails using natural language. Handles all email composition intelligently.",
       "auth_required": true,
@@ -206,7 +110,6 @@
         "path": "/mcp/tools/manage_email",
         "method": "POST",
         "headers": {
-          "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
           "X-User-Credential-NYLAS_GRANT_ID": "string",
           "Content-Type": "application/json"
         },
@@ -318,7 +221,6 @@
         "path": "/mcp/tools/find_emails",
         "method": "POST",
         "headers": {
-          "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
           "X-User-Credential-NYLAS_GRANT_ID": "string",
           "Content-Type": "application/json"
         },
@@ -389,7 +291,6 @@
         "path": "/mcp/tools/organize_inbox",
         "method": "POST",
         "headers": {
-          "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
           "X-User-Credential-NYLAS_GRANT_ID": "string",
           "Content-Type": "application/json"
         },
@@ -490,7 +391,6 @@
         "path": "/mcp/tools/email_insights",
         "method": "POST",
         "headers": {
-          "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
           "X-User-Credential-NYLAS_GRANT_ID": "string",
           "Content-Type": "application/json"
         },
@@ -539,7 +439,6 @@
         "path": "/mcp/tools/smart_folders",
         "method": "POST",
         "headers": {
-          "X-User-Credential-NYLAS_ACCESS_TOKEN": "string",
           "X-User-Credential-NYLAS_GRANT_ID": "string",
           "Content-Type": "application/json"
         },
@@ -612,17 +511,16 @@
     }
   ],
   "setup_guide": {
-    "external_service": {
-      "name": "Nylas",
-      "description": "Email API service that connects to Gmail, Outlook, and other providers",
-      "signup_url": "https://dashboard-v3.nylas.com/register",
-      "free_tier": "5 email accounts included"
-    },
+    "flow": "hosted_auth",
+    "connect_url": "/setup/connect-url",
     "steps": [
-      "Create free Nylas account",
-      "Get your API key from dashboard",
-      "Connect your email account to get Grant ID",
-      "Enter both credentials in Juli"
+      "Click Connect in Juli (opens /setup/connect-url)",
+      "Choose your email provider and sign in",
+      "After authorization, you are redirected back and your grant_id is stored"
+    ],
+    "notes": [
+      "End users do not need a Nylas account",
+      "No API keys are entered by the user"
     ]
   }
 }

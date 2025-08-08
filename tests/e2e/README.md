@@ -13,8 +13,7 @@ cp .env.test.example .env.test
 ```
 
 Edit `.env.test` with:
-- `NYLAS_ACCESS_TOKEN`: Your Nylas API key (use a test account!)
-- `NYLAS_GRANT_ID`: Your Nylas grant ID 
+- `NYLAS_GRANT_ID`: Your Nylas grant ID (from Hosted Auth callback)
 - `OPENAI_API_KEY`: Your OpenAI API key
 - `TEST_EMAIL_ADDRESS`: An email address accessible via Nylas
 
@@ -132,7 +131,6 @@ For continuous integration:
 
 1. Set environment variables in CI:
    ```
-   NYLAS_ACCESS_TOKEN=<test_token>
    NYLAS_GRANT_ID=<test_grant>
    OPENAI_API_KEY=<api_key>
    TEST_EMAIL_ADDRESS=<test_email>
