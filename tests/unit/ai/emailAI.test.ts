@@ -10,28 +10,26 @@ describe('EmailAI', () => {
   let emailAI: EmailAI;
   let mockCreate: jest.Mock<any>;
   let originalEnv: string | undefined;
-  
+
   beforeEach(() => {
     jest.clearAllMocks();
     // Save original env var
     originalEnv = process.env.OPENAI_API_KEY;
     // Set test API key
     process.env.OPENAI_API_KEY = 'test-api-key';
-    
+
     mockCreate = jest.fn();
-    
+
     // Mock the OpenAI constructor to return our mock
     (OpenAI as any).mockImplementation(() => ({
-      chat: {
-        completions: {
-          create: mockCreate
-        }
+      responses: {
+        create: mockCreate
       }
     }));
-    
+
     emailAI = new EmailAI();
   });
-  
+
   afterEach(() => {
     // Restore original env var
     if (originalEnv !== undefined) {
@@ -44,27 +42,24 @@ describe('EmailAI', () => {
   describe('understandQuery', () => {
     it('should parse a simple send email request', async () => {
       const query = 'send an email to john@example.com about the meeting tomorrow';
-      
+
       // Mock OpenAI response with function calling
       const mockResponse = {
-        choices: [{
-          message: {
-            tool_calls: [{
-              function: {
-                name: 'extract_email_intent',
-                arguments: JSON.stringify({
-                  intent: 'send',
-                  recipients: ['john@example.com'],
-                  subject: 'Meeting Tomorrow',
-                  key_points: ['meeting scheduled for tomorrow'],
-                  urgency: 'normal',
-                  tone: 'professional'
-                })
-              }
-            }]
+        output: [
+          {
+            type: 'function_call',
+            name: 'extract_email_intent',
+            arguments: JSON.stringify({
+              intent: 'send',
+              recipients: ['john@example.com'],
+              subject: 'Meeting Tomorrow',
+              key_points: ['meeting scheduled for tomorrow'],
+              urgency: 'normal',
+              tone: 'professional'
+            })
           }
-        }]
-      };
+        ]
+      } as any;
 
       mockCreate.mockResolvedValue(mockResponse);
 
@@ -85,24 +80,21 @@ describe('EmailAI', () => {
       const context = { senderEmail: 'sarah@company.com' };
 
       const mockResponse = {
-        choices: [{
-          message: {
-            tool_calls: [{
-              function: {
-                name: 'extract_email_intent',
-                arguments: JSON.stringify({
-                  intent: 'reply',
-                  recipients: [],
-                  subject: 'Re: Proposal',
-                  key_points: ['thank you for the proposal'],
-                  urgency: 'normal',
-                  tone: 'grateful'
-                })
-              }
-            }]
+        output: [
+          {
+            type: 'function_call',
+            name: 'extract_email_intent',
+            arguments: JSON.stringify({
+              intent: 'reply',
+              recipients: [],
+              subject: 'Re: Proposal',
+              key_points: ['thank you for the proposal'],
+              urgency: 'normal',
+              tone: 'grateful'
+            })
           }
-        }]
-      };
+        ]
+      } as any;
 
       mockCreate.mockResolvedValue(mockResponse);
 
@@ -126,24 +118,21 @@ describe('EmailAI', () => {
       };
 
       const mockResponse = {
-        choices: [{
-          message: {
-            tool_calls: [{
-              function: {
-                name: 'generate_email',
-                arguments: JSON.stringify({
-                  to: ['client@example.com'],
-                  cc: null,
-                  bcc: null,
-                  subject: 'Project Update - On Track for Next Week',
-                  body: 'Dear Client,\n\nI wanted to update you on our project progress...',
-                  tone_confirmation: 'professional'
-                })
-              }
-            }]
+        output: [
+          {
+            type: 'function_call',
+            name: 'generate_email',
+            arguments: JSON.stringify({
+              to: ['client@example.com'],
+              cc: null,
+              bcc: null,
+              subject: 'Project Update - On Track for Next Week',
+              body: 'Dear Client,\n\nI wanted to update you on our project progress...',
+              tone_confirmation: 'professional'
+            })
           }
-        }]
-      };
+        ]
+      } as any;
 
       mockCreate.mockResolvedValue(mockResponse);
 
@@ -173,36 +162,33 @@ describe('EmailAI', () => {
       ];
 
       const mockResponse = {
-        choices: [{
-          message: {
-            tool_calls: [{
-              function: {
-                name: 'analyze_emails',
-                arguments: JSON.stringify({
-                  analyses: [
-                    {
-                      email_id: '1',
-                      importance_score: 0.95,
-                      category: 'urgent_alert',
-                      reason: 'Production server issue requiring immediate attention',
-                      action_required: true,
-                      suggested_folder: null
-                    },
-                    {
-                      email_id: '2',
-                      importance_score: 0.2,
-                      category: 'newsletter',
-                      reason: 'Promotional content, no action required',
-                      action_required: false,
-                      suggested_folder: null
-                    }
-                  ]
-                })
-              }
-            }]
+        output: [
+          {
+            type: 'function_call',
+            name: 'analyze_emails',
+            arguments: JSON.stringify({
+              analyses: [
+                {
+                  email_id: '1',
+                  importance_score: 0.95,
+                  category: 'urgent_alert',
+                  reason: 'Production server issue requiring immediate attention',
+                  action_required: true,
+                  suggested_folder: null
+                },
+                {
+                  email_id: '2',
+                  importance_score: 0.2,
+                  category: 'newsletter',
+                  reason: 'Promotional content, no action required',
+                  action_required: false,
+                  suggested_folder: null
+                }
+              ]
+            })
           }
-        }]
-      };
+        ]
+      } as any;
 
       mockCreate.mockResolvedValue(mockResponse);
 
@@ -224,35 +210,32 @@ describe('EmailAI', () => {
       };
 
       const mockResponse = {
-        choices: [{
-          message: {
-            tool_calls: [{
-              function: {
-                name: 'extract_action_items',
-                arguments: JSON.stringify({
-                  action_items: [
-                    {
-                      task: 'Review design',
-                      deadline: 'Friday',
-                      priority: 'high'
-                    },
-                    {
-                      task: 'Send feedback on design',
-                      deadline: 'Friday',
-                      priority: 'high'
-                    },
-                    {
-                      task: 'Schedule meeting',
-                      deadline: 'Next week',
-                      priority: 'medium'
-                    }
-                  ]
-                })
-              }
-            }]
+        output: [
+          {
+            type: 'function_call',
+            name: 'extract_action_items',
+            arguments: JSON.stringify({
+              action_items: [
+                {
+                  task: 'Review design',
+                  deadline: 'Friday',
+                  priority: 'high'
+                },
+                {
+                  task: 'Send feedback on design',
+                  deadline: 'Friday',
+                  priority: 'high'
+                },
+                {
+                  task: 'Schedule meeting',
+                  deadline: 'Next week',
+                  priority: 'medium'
+                }
+              ]
+            })
           }
-        }]
-      };
+        ]
+      } as any;
 
       mockCreate.mockResolvedValue(mockResponse);
 
