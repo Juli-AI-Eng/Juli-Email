@@ -43,7 +43,29 @@ suite('Tool Approval Flows', () => {
     // Cleanup test emails
     if (testEmailIds.length > 0 && E2E_CONFIG.testData.cleanupAfterTests) {
       logger.logInfo(`Cleaning up ${testEmailIds.length} test emails...`);
-      // Note: Nylas doesn't have a direct delete API, emails would be cleaned via inbox rules
+      
+      // Delete test emails using Nylas API
+      try {
+        const Nylas = (await import('nylas')).default;
+        const nylas = new Nylas({ 
+          apiKey: process.env.NYLAS_API_KEY!, 
+          apiUri: process.env.NYLAS_API_URI || 'https://api.us.nylas.com' 
+        });
+        
+        for (const emailId of testEmailIds) {
+          try {
+            await nylas.messages.destroy({
+              identifier: E2E_CONFIG.nylas!.grantId,
+              messageId: emailId
+            });
+            logger.logSuccess(`Deleted test email: ${emailId}`);
+          } catch (error) {
+            logger.logWarning(`Failed to delete email ${emailId}: ${error}`);
+          }
+        }
+      } catch (error) {
+        logger.logWarning(`Failed to cleanup test emails: ${error}`);
+      }
     }
 
     // Stop server
@@ -56,6 +78,11 @@ suite('Tool Approval Flows', () => {
   describe('manage_email approval flow', () => {
     test('should require approval for sending email', async () => {
       logger.logStep(1, 'Test manage_email approval flow');
+
+      if (!E2E_CONFIG.nylas.testEmail) {
+        logger.logWarning('Skipping - TEST_EMAIL_ADDRESS not set');
+        return;
+      }
 
       // Step 1: Initial request that should require approval
       const initialResponse = await client.callTool('manage_email', {
@@ -92,6 +119,11 @@ suite('Tool Approval Flows', () => {
 
     test('should skip approval when require_approval is false', async () => {
       logger.logStep(2, 'Test manage_email without approval');
+
+      if (!E2E_CONFIG.nylas.testEmail) {
+        logger.logWarning('Skipping - TEST_EMAIL_ADDRESS not set');
+        return;
+      }
 
       const response = await client.callTool('manage_email', {
         action: 'send',
@@ -273,6 +305,11 @@ suite('Tool Approval Flows', () => {
 
     test('should handle approval with minimal but valid action_data', async () => {
       logger.logStep(8, 'Test approval with minimal action_data');
+
+      if (!E2E_CONFIG.nylas.testEmail) {
+        logger.logWarning('Skipping - TEST_EMAIL_ADDRESS not set');
+        return;
+      }
 
       // Test with minimal but valid action_data
       const response = await client.callTool('manage_email', {

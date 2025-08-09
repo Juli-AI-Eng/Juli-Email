@@ -30,6 +30,50 @@ This repository serves as a reference implementation for building MCP servers fo
 
 See [docs/MCP_DEVELOPER_GUIDE.md](docs/MCP_DEVELOPER_GUIDE.md) for the complete guide.
 
+### Agent Quickstart (A2A JSON‑RPC)
+
+1) Discover
+- GET `/.well-known/a2a.json` → Agent Card (auth, approvals, context, capabilities, rpc)
+
+2) Authenticate (agent→agent)
+- Send OIDC ID token: `Authorization: Bearer <ID_TOKEN>` (audience/issuers from the card)
+- Optional dev-only header: `X-A2A-Dev-Secret`
+
+3) Obtain user credential (EMAIL_ACCOUNT_GRANT)
+- GET `/.well-known/a2a-credentials.json` → pick a flow (hosted_auth)
+- Open `connect_url` in a browser, complete provider login, receive `grant_id` from callback
+- Store `grant_id` as `EMAIL_ACCOUNT_GRANT`
+
+4) Execute a tool
+```bash
+curl -sS -H "Authorization: Bearer $ID_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","id":"1","method":"tool.execute",
+    "params":{
+      "tool":"manage_email",
+      "arguments":{ "action":"send", "query":"email test@example.com about tomorrow" },
+      "user_context":{ "credentials": { "EMAIL_ACCOUNT_GRANT":"<grant>" } },
+      "request_id":"<uuid>"
+    }
+  }' http://localhost:3000/a2a/rpc
+```
+
+5) Approve when required
+```bash
+curl -sS -H "Authorization: Bearer $ID_TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0","id":"2","method":"tool.approve",
+    "params":{
+      "tool":"manage_email",
+      "original_arguments":{ "action":"send", "query":"..." },
+      "action_data":{ /* from preview */ },
+      "user_context":{ "credentials": { "EMAIL_ACCOUNT_GRANT":"<grant>" } },
+      "request_id":"<uuid>"
+    }
+  }' http://localhost:3000/a2a/rpc
+```
+
 ## Quick Start
 
 ```bash
@@ -61,7 +105,7 @@ NYLAS_API_URI=https://api.us.nylas.com
 
 1) Check if setup is needed
 ```
-GET /mcp/needs-setup
+GET /setup/status
 → { "needs_setup": true, "connect_url": "/setup/connect-url" }
 ```
 

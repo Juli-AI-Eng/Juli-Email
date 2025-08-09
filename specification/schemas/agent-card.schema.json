@@ -1,0 +1,123 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "A2A Agent Card",
+    "description": "Defines the capabilities, authentication, and connection information for an A2A-compliant agent.",
+    "type": "object",
+    "required": [
+        "agent_id",
+        "version",
+        "auth",
+        "capabilities",
+        "rpc"
+    ],
+    "properties": {
+        "agent_id": {
+            "type": "string"
+        },
+        "version": {
+            "type": "string"
+        },
+        "description": {
+            "type": "string"
+        },
+        "auth": {
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/authScheme"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "schemes": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/authScheme"
+                            }
+                        }
+                    },
+                    "required": [
+                        "schemes"
+                    ]
+                }
+            ]
+        },
+        "approvals": {
+            "type": "object",
+            "properties": {
+                "modes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "stateless_preview_then_approve"
+                        ]
+                    }
+                }
+            }
+        },
+        "context_requirements": {
+            "type": "object",
+            "properties": {
+                "credentials": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "capabilities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "input_schema": {
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "name",
+                    "description",
+                    "input_schema"
+                ]
+            }
+        },
+        "rpc": {
+            "type": "object",
+            "properties": {
+                "endpoint": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "endpoint"
+            ]
+        },
+        "extensions": {
+            "type": "object"
+        }
+    },
+    "definitions": {
+        "authScheme": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "oidc",
+                        "shared_secret"
+                    ]
+                }
+            },
+            "required": [
+                "type"
+            ]
+        }
+    }
+}

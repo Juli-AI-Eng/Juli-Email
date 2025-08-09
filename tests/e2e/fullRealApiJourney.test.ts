@@ -13,7 +13,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 // Skip tests if real APIs are not configured
-const SKIP_REAL_API = !hasNylasCredentials() || !process.env.OPENAI_API_KEY;
+const SKIP_REAL_API = !hasNylasCredentials() || !process.env.OPENAI_API_KEY || !process.env.TEST_EMAIL_ADDRESS;
 
 const testSuite = SKIP_REAL_API ? describe.skip : describe;
 
@@ -55,7 +55,7 @@ testSuite('Full Real API Journey', () => {
 
     // Create test client
     client = new HttpTestClient({
-      baseUrl: E2E_CONFIG.server.url,
+      baseUrl: 'http://localhost',
       port: server.port,
       credentials: {
         nylasGrantId: E2E_CONFIG.nylas.nylasGrantId
@@ -70,7 +70,29 @@ testSuite('Full Real API Journey', () => {
 
     if (E2E_CONFIG.testData.cleanupAfterTest && testEmailIds.length > 0) {
       logger.logInfo(`Cleaning up ${testEmailIds.length} test emails...`);
-      // TODO: Implement cleanup logic
+      
+      // Delete test emails using Nylas API
+      try {
+        const Nylas = (await import('nylas')).default;
+        const nylas = new Nylas({ 
+          apiKey: process.env.NYLAS_API_KEY!, 
+          apiUri: process.env.NYLAS_API_URI || 'https://api.us.nylas.com' 
+        });
+        
+        for (const emailId of testEmailIds) {
+          try {
+            await nylas.messages.destroy({
+              identifier: E2E_CONFIG.nylas!.nylasGrantId,
+              messageId: emailId
+            });
+            logger.logSuccess(`Deleted test email: ${emailId}`);
+          } catch (error) {
+            logger.logWarning(`Failed to delete email ${emailId}: ${error}`);
+          }
+        }
+      } catch (error) {
+        logger.logWarning(`Failed to cleanup test emails: ${error}`);
+      }
     }
 
     if (server) {
@@ -94,7 +116,7 @@ testSuite('Full Real API Journey', () => {
       logger.logStep(1, 'List available tools with credentials');
 
       const response = await logger.timeOperation('list_tools', async () => {
-        logger.logApiCall('GET', '/mcp/tools');
+        logger.logApiCall('GET', '/.well-known/a2a.json');
         const result = await client.listTools();
         logger.logApiResponse(200, result);
         return result;
@@ -169,7 +191,7 @@ testSuite('Full Real API Journey', () => {
       logger.logInfo(`Query: "${query}"`);
 
       const response = await logger.timeOperation('find_emails', async () => {
-        logger.logApiCall('POST', '/mcp/tools/find_emails', {
+        logger.logApiCall('POST', '/a2a/rpc', {
           query,
           analysis_type: 'full',
           limit: 10
@@ -216,7 +238,7 @@ testSuite('Full Real API Journey', () => {
       // Step 1: Initial request that should require approval
       logger.logInfo('Step 4a: Initial email request');
       const initialResponse = await logger.timeOperation('initial_email_request', async () => {
-        logger.logApiCall('POST', '/mcp/tools/manage_email', {
+        logger.logApiCall('POST', '/a2a/rpc', {
           action: 'send',
           query,
           require_approval: true
@@ -244,7 +266,7 @@ testSuite('Full Real API Journey', () => {
       // Step 2: Approve and send the email
       logger.logInfo('Step 4b: Approve and send email');
       const approvalResponse = await logger.timeOperation('approve_email_send', async () => {
-        logger.logApiCall('POST', '/mcp/tools/manage_email', {
+        logger.logApiCall('POST', '/a2a/rpc', {
           ...initialResponse.result.action_data.original_params,
           approved: true,
           action_data: initialResponse.result.action_data
@@ -283,7 +305,7 @@ testSuite('Full Real API Journey', () => {
       logger.logStep(5, 'Generate AI-powered email insights');
 
       const response = await logger.timeOperation('email_insights', async () => {
-        logger.logApiCall('POST', '/mcp/tools/email_insights', {
+        logger.logApiCall('POST', '/a2a/rpc', {
           query: 'summarize my emails today',
           time_period: 'today'
         });
@@ -308,7 +330,7 @@ testSuite('Full Real API Journey', () => {
       logger.logStep(6, 'Analyze inbox organization (dry run)');
 
       const response = await logger.timeOperation('organize_analysis', async () => {
-        logger.logApiCall('POST', '/mcp/tools/organize_inbox', {
+        logger.logApiCall('POST', '/a2a/rpc', {
           instruction: 'organize my emails by importance and archive old newsletters',
           dry_run: true
         });
@@ -339,12 +361,12 @@ testSuite('Full Real API Journey', () => {
 
       // Create client without credentials
       const noCredClient = new HttpTestClient({
-        baseUrl: E2E_CONFIG.server.url,
+        baseUrl: 'http://localhost',
         port: server.port
       });
 
       const response = await logger.timeOperation('missing_credentials_test', async () => {
-        logger.logApiCall('POST', '/mcp/tools/manage_email', {
+        logger.logApiCall('POST', '/a2a/rpc', {
           action: 'send',
           query: 'test email'
         });
@@ -358,8 +380,11 @@ testSuite('Full Real API Journey', () => {
         return result;
       });
 
-      expect(response.error).toBeDefined();
-      expect(response.error).toContain('Missing Nylas credentials');
+      expect(response).toBeDefined();
+      const err = (response as any).error || {};
+      expect(err).toBeDefined();
+      expect(err.code).toBe(401);
+      expect((err.message || '').toLowerCase()).toContain('missing_credentials');
 
       logger.logWarning('Correctly handled missing credentials');
     });
@@ -368,7 +393,7 @@ testSuite('Full Real API Journey', () => {
       logger.logStep(8, 'Test invalid tool error handling');
 
       const response = await logger.timeOperation('invalid_tool_test', async () => {
-        logger.logApiCall('POST', '/mcp/tools/invalid_tool', {});
+        logger.logApiCall('POST', '/a2a/rpc', {});
 
         const result = await client.callTool('invalid_tool', {});
 
@@ -376,8 +401,11 @@ testSuite('Full Real API Journey', () => {
         return result;
       });
 
-      expect(response.error).toBeDefined();
-      expect(response.error).toContain('Unknown tool');
+      expect(response).toBeDefined();
+      const err2 = (response as any).error || {};
+      expect(err2).toBeDefined();
+      expect(err2.code).toBe(404);
+      expect((err2.message || '').toLowerCase()).toContain('unknown_tool');
 
       logger.logWarning('Correctly handled invalid tool');
     });

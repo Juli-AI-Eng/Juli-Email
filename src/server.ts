@@ -729,14 +729,33 @@ app.post('/a2a/rpc', async (req, res) => {
           if (!NYLAS_API_KEY || !nylasGrantId) {
             return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 401, message: 'missing_credentials', data: { hint: '/.well-known/a2a-credentials.json' } } };
           }
-          if (tool !== 'manage_email') {
-            return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 400, message: 'approval_not_supported_for_tool', data: { tool } } };
-          }
           const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
           const emailAI = new EmailAI();
-          const typed = ManageEmailSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as ManageEmailParams;
-          const exec = new ManageEmailTool(nylas, nylasGrantId, emailAI, { userName: typed.user_name, userEmail: typed.user_email });
-          const result = await exec.execute(typed);
+          let result: any;
+          
+          switch (tool) {
+            case 'manage_email': {
+              const typed = ManageEmailSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as ManageEmailParams;
+              const exec = new ManageEmailTool(nylas, nylasGrantId, emailAI, { userName: typed.user_name, userEmail: typed.user_email });
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'organize_inbox': {
+              const typed = OrganizeInboxSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as OrganizeInboxParams;
+              const exec = new OrganizeInboxTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'smart_folders': {
+              const typed = SmartFoldersSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as SmartFoldersParams;
+              const exec = new SmartFoldersTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            default:
+              return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 400, message: 'approval_not_supported_for_tool', data: { tool } } };
+          }
+          
           return isNotification ? null : { jsonrpc: '2.0', id, result: { request_id, result } };
         }
         default:

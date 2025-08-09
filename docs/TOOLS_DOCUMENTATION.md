@@ -21,15 +21,25 @@ Comprehensive documentation for all tools available in the Inbox MCP server, inc
 
 1. **Hosted Auth**: Users authenticate via Nylas Hosted Auth; server keeps API key in env
 2. **Storage**: Juli securely stores only the user's `grant_id`
-3. **Runtime**: Juli sends `X-User-Credential-NYLAS_GRANT_ID` with every request
+3. **Runtime**: For MCP, send `X-User-Credential-NYLAS_GRANT_ID`. For A2A, include `EMAIL_ACCOUNT_GRANT` (preferred) or `NYLAS_GRANT_ID` in `user_context.credentials`.
 
-### Required Headers for All Tools
+### Required Headers for All Tools (MCP)
 
 Every request to email tools must include this header:
 
 ```http
 X-User-Credential-NYLAS_GRANT_ID: your_grant_id_here
 ```
+
+### A2A (JSON‑RPC)
+
+- Discovery: `GET /.well-known/a2a.json` → Agent Card
+- Credentials: `GET /.well-known/a2a-credentials.json`
+- RPC: `POST /a2a/rpc` with methods `agent.card`, `agent.handshake`, `tool.execute`, `tool.approve`
+
+Auth:
+- Production: `Authorization: Bearer <OIDC_ID_TOKEN>` (audience from Agent Card)
+- Dev: `X-A2A-Dev-Secret: <secret>` when enabled
 
 ### What Happens Without Credentials
 
@@ -51,7 +61,7 @@ Hosted Auth keeps the Nylas API key on the server and returns a per-user `grant_
 
 Request:
 ```bash
-curl -s https://juli-ai.com/mcp/needs-setup
+curl -s https://juli-ai.com/setup/status
 ```
 
 Response when not connected:

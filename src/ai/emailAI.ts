@@ -44,8 +44,8 @@ export class EmailAI {
     if (!response) return null;
     const out = (response as any).output;
     if (Array.isArray(out)) {
-      // Direct tool_call item
-      const tc = out.find((o: any) => o?.type === 'tool_call');
+      // Direct tool/function call items (Responses API emits type 'function_call')
+      const tc = out.find((o: any) => o?.type === 'tool_call' || o?.type === 'function_call');
       if (tc) {
         const name = tc.tool_name || tc.name;
         const args = tc.arguments || tc.arguments_text || (typeof tc.input === 'object' ? JSON.stringify(tc.input) : tc.input);
@@ -93,73 +93,70 @@ export class EmailAI {
   }> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "extract_search_params",
-        description: "Extract email search parameters from natural language query",
-        parameters: {
-          type: "object",
-          properties: {
-            intent: {
-              type: "string",
-              description: "The search intent"
-            },
-            timeframe: {
-              type: ["object", "null"],
-              properties: {
-                start: {
-                  type: ["string", "null"],
-                  description: "Start date/time (e.g., '2024-01-01', 'yesterday', '7 days ago')"
-                },
-                end: {
-                  type: ["string", "null"],
-                  description: "End date/time"
-                }
-              },
-              required: ["start", "end"],
-              additionalProperties: false,
-              description: "Time range for the search"
-            },
-            senders: {
-              type: ["array", "null"],
-              items: {
-                type: "string",
-                description: "Sender name or email"
-              },
-              description: "List of senders to filter by"
-            },
-            keywords: {
-              type: ["array", "null"],
-              items: {
-                type: "string",
-                description: "Keyword to search for"
-              },
-              description: "Keywords to search in email content"
-            },
-            filters: {
-              type: ["object", "null"],
-              properties: {
-                unread: {
-                  type: ["boolean", "null"],
-                  description: "Filter for unread emails"
-                },
-                starred: {
-                  type: ["boolean", "null"],
-                  description: "Filter for starred/important emails"
-                },
-                hasAttachments: {
-                  type: ["boolean", "null"],
-                  description: "Filter for emails with attachments"
-                }
-              },
-              required: ["unread", "starred", "hasAttachments"],
-              additionalProperties: false,
-              description: "Boolean filters for email properties"
-            }
+      name: "extract_search_params",
+      description: "Extract email search parameters from natural language query",
+      parameters: {
+        type: "object",
+        properties: {
+          intent: {
+            type: "string",
+            description: "The search intent"
           },
-          required: ["intent", "timeframe", "senders", "keywords", "filters"],
-          additionalProperties: false
+          timeframe: {
+            type: ["object", "null"],
+            properties: {
+              start: {
+                type: ["string", "null"],
+                description: "Start date/time (e.g., '2024-01-01', 'yesterday', '7 days ago')"
+              },
+              end: {
+                type: ["string", "null"],
+                description: "End date/time"
+              }
+            },
+            required: ["start", "end"],
+            additionalProperties: false,
+            description: "Time range for the search"
+          },
+          senders: {
+            type: ["array", "null"],
+            items: {
+              type: "string",
+              description: "Sender name or email"
+            },
+            description: "List of senders to filter by"
+          },
+          keywords: {
+            type: ["array", "null"],
+            items: {
+              type: "string",
+              description: "Keyword to search for"
+            },
+            description: "Keywords to search in email content"
+          },
+          filters: {
+            type: ["object", "null"],
+            properties: {
+              unread: {
+                type: ["boolean", "null"],
+                description: "Filter for unread emails"
+              },
+              starred: {
+                type: ["boolean", "null"],
+                description: "Filter for starred/important emails"
+              },
+              hasAttachments: {
+                type: ["boolean", "null"],
+                description: "Filter for emails with attachments"
+              }
+            },
+            required: ["unread", "starred", "hasAttachments"],
+            additionalProperties: false,
+            description: "Boolean filters for email properties"
+          }
         },
-        strict: true
+        required: ["intent", "timeframe", "senders", "keywords", "filters"],
+        additionalProperties: false
       }
     }];
 
@@ -174,7 +171,7 @@ Examples:
     if (this.debugMode) {
       console.log('\n🤖 AI Search Query Understanding');
       console.log('📝 User Query:', query);
-      console.log('🔧 Function Schema:', JSON.stringify(tools[0].function.parameters, null, 2));
+      console.log('🔧 Function Schema:', JSON.stringify((tools as any)[0].parameters, null, 2));
     }
 
     const completion = await (this.openai as any).responses.create({
@@ -184,7 +181,7 @@ Examples:
         { role: "user", content: query }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "extract_search_params" } },
+      tool_choice: { type: "function", name: "extract_search_params" },
       ...this.buildGpt5Params()
     });
 
@@ -197,7 +194,7 @@ Examples:
       throw new Error('Failed to understand search query');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse((toolCall as any).arguments || (toolCall as any).function?.arguments);
 
     // Clean up null values and parse dates if needed
     const searchParams: any = {
@@ -270,51 +267,48 @@ Examples:
   async understandQuery(query: string, context?: any): Promise<EmailIntent> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "extract_email_intent",
-        description: "Extract the intent, recipients, subject, key points, urgency and tone from a natural language email request",
-        parameters: {
-          type: "object",
-          properties: {
-            intent: {
-              type: "string",
-              enum: ["send", "reply", "forward", "find", "organize"],
-              description: "The user's intent"
-            },
-            recipients: {
-              type: "array",
-              items: {
-                type: "string",
-                description: "Email address or contact name (e.g., 'john@example.com' or 'Sarah')"
-              },
-              description: "List of recipient email addresses or contact names to be resolved"
-            },
-            subject: {
-              type: "string",
-              description: "Suggested email subject line"
-            },
-            key_points: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Key points or topics to include"
-            },
-            urgency: {
-              type: "string",
-              enum: ["low", "normal", "high", "urgent"],
-              description: "Urgency level of the email"
-            },
-            tone: {
-              type: "string",
-              enum: ["professional", "casual", "friendly", "formal", "grateful"],
-              description: "Desired tone of the email"
-            }
+      name: "extract_email_intent",
+      description: "Extract the intent, recipients, subject, key points, urgency and tone from a natural language email request",
+      parameters: {
+        type: "object",
+        properties: {
+          intent: {
+            type: "string",
+            enum: ["send", "reply", "forward", "find", "organize"],
+            description: "The user's intent"
           },
-          required: ["intent", "recipients", "subject", "key_points", "urgency", "tone"],
-          additionalProperties: false
+          recipients: {
+            type: "array",
+            items: {
+              type: "string",
+              description: "Email address or contact name (e.g., 'john@example.com' or 'Sarah')"
+            },
+            description: "List of recipient email addresses or contact names to be resolved"
+          },
+          subject: {
+            type: "string",
+            description: "Suggested email subject line"
+          },
+          key_points: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Key points or topics to include"
+          },
+          urgency: {
+            type: "string",
+            enum: ["low", "normal", "high", "urgent"],
+            description: "Urgency level of the email"
+          },
+          tone: {
+            type: "string",
+            enum: ["professional", "casual", "friendly", "formal", "grateful"],
+            description: "Desired tone of the email"
+          }
         },
-        strict: true
+        required: ["intent", "recipients", "subject", "key_points", "urgency", "tone"],
+        additionalProperties: false
       }
     }];
 
@@ -330,7 +324,7 @@ Examples:
     if (this.debugMode) {
       console.log('\n🤖 AI Email Intent Understanding');
       console.log('📝 User Query:', query);
-      console.log('🔧 Function Schema:', JSON.stringify(tools[0].function.parameters, null, 2));
+      console.log('🔧 Function Schema:', JSON.stringify((tools as any)[0].parameters, null, 2));
     }
 
     const completion = await (this.openai as any).responses.create({
@@ -340,9 +334,15 @@ Examples:
         { role: "user", content: query }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "extract_email_intent" } },
+      tool_choice: { type: "function", name: "extract_email_intent" },
       ...this.buildGpt5Params()
     });
+
+    if (this.debugMode) {
+      try {
+        console.log('🧪 Responses output (understandQuery):', JSON.stringify(completion, null, 2));
+      } catch { }
+    }
 
     const toolCall = this.extractFirstToolCall(completion);
     if (!toolCall || toolCall.name !== 'extract_email_intent') {
@@ -364,53 +364,50 @@ Examples:
   async generateEmailContent(intent: EmailIntent, contextEmail?: Email, recipientNames?: { [email: string]: string }, senderInfo?: { email?: string; name?: string } | null): Promise<GeneratedEmail> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "generate_email",
-        description: "Generate a complete email with recipients, subject, and body",
-        parameters: {
-          type: "object",
-          properties: {
-            to: {
-              type: "array",
-              items: {
-                type: "string",
-                description: "Recipient email address"
-              },
-              description: "Primary recipients"
-            },
-            cc: {
-              type: ["array", "null"],
-              items: {
-                type: "string",
-                description: "CC recipient email address"
-              },
-              description: "CC recipients"
-            },
-            bcc: {
-              type: ["array", "null"],
-              items: {
-                type: "string",
-                description: "BCC recipient email address"
-              },
-              description: "BCC recipients"
-            },
-            subject: {
+      name: "generate_email",
+      description: "Generate a complete email with recipients, subject, and body",
+      parameters: {
+        type: "object",
+        properties: {
+          to: {
+            type: "array",
+            items: {
               type: "string",
-              description: "Email subject line"
+              description: "Recipient email address"
             },
-            body: {
-              type: "string",
-              description: "Complete email body"
-            },
-            tone_confirmation: {
-              type: ["string", "null"],
-              description: "Confirmation of tone used"
-            }
+            description: "Primary recipients"
           },
-          required: ["to", "subject", "body", "cc", "bcc", "tone_confirmation"],
-          additionalProperties: false
+          cc: {
+            type: ["array", "null"],
+            items: {
+              type: "string",
+              description: "CC recipient email address"
+            },
+            description: "CC recipients"
+          },
+          bcc: {
+            type: ["array", "null"],
+            items: {
+              type: "string",
+              description: "BCC recipient email address"
+            },
+            description: "BCC recipients"
+          },
+          subject: {
+            type: "string",
+            description: "Email subject line"
+          },
+          body: {
+            type: "string",
+            description: "Complete email body"
+          },
+          tone_confirmation: {
+            type: ["string", "null"],
+            description: "Confirmation of tone used"
+          }
         },
-        strict: true
+        required: ["to", "subject", "body", "cc", "bcc", "tone_confirmation"],
+        additionalProperties: false
       }
     }];
 
@@ -449,16 +446,30 @@ Examples:
     
     Write a complete, professional email that covers all key points naturally with proper formatting.`;
 
-    const completion = await (this.openai as any).responses.create({
-      model: "gpt-5",
-      input: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: "Generate the email content." }
-      ],
-      tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_email" } },
-      ...this.buildGpt5Params({ verbosity: 'medium' })
-    });
+    if (this.debugMode) {
+      try {
+        console.log('🔧 Tools (generateEmailContent):', JSON.stringify(tools));
+      } catch { }
+    }
+
+    let completion: any;
+    try {
+      completion = await (this.openai as any).responses.create({
+        model: "gpt-5",
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: "Generate the email content." }
+        ],
+        tools: tools,
+        tool_choice: { type: "function", name: "generate_email" },
+        ...this.buildGpt5Params({ verbosity: 'medium' })
+      });
+    } catch (err: any) {
+      if (this.debugMode) {
+        console.error('❌ OpenAI error (generateEmailContent):', err?.response?.data || err?.message || err);
+      }
+      throw err;
+    }
 
     const toolCall = this.extractFirstToolCall(completion);
     if (!toolCall || toolCall.name !== 'generate_email') {
@@ -487,53 +498,50 @@ Examples:
   async analyzeEmailImportance(emails: Email[]): Promise<EmailAnalysis[]> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "analyze_emails",
-        description: "Analyze importance and categorize multiple emails",
-        parameters: {
-          type: "object",
-          properties: {
-            analyses: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  email_id: {
-                    type: "string",
-                    description: "ID of the email being analyzed"
-                  },
-                  importance_score: {
-                    type: "number",
-                    description: "Importance score from 0 to 1"
-                  },
-                  category: {
-                    type: "string",
-                    enum: ["urgent_alert", "client_email", "newsletter", "notification", "personal", "other"],
-                    description: "Email category"
-                  },
-                  reason: {
-                    type: "string",
-                    description: "Reason for the importance rating"
-                  },
-                  action_required: {
-                    type: "boolean",
-                    description: "Whether action is required"
-                  },
-                  suggested_folder: {
-                    type: ["string", "null"],
-                    description: "Suggested folder for organization"
-                  }
+      name: "analyze_emails",
+      description: "Analyze importance and categorize multiple emails",
+      parameters: {
+        type: "object",
+        properties: {
+          analyses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                email_id: {
+                  type: "string",
+                  description: "ID of the email being analyzed"
                 },
-                required: ["email_id", "importance_score", "category", "reason", "action_required", "suggested_folder"],
-                additionalProperties: false
+                importance_score: {
+                  type: "number",
+                  description: "Importance score from 0 to 1"
+                },
+                category: {
+                  type: "string",
+                  enum: ["urgent_alert", "client_email", "newsletter", "notification", "personal", "other"],
+                  description: "Email category"
+                },
+                reason: {
+                  type: "string",
+                  description: "Reason for the importance rating"
+                },
+                action_required: {
+                  type: "boolean",
+                  description: "Whether action is required"
+                },
+                suggested_folder: {
+                  type: ["string", "null"],
+                  description: "Suggested folder for organization"
+                }
               },
-              description: "Analysis results for each email"
-            }
-          },
-          required: ["analyses"],
-          additionalProperties: false
+              required: ["email_id", "importance_score", "category", "reason", "action_required", "suggested_folder"],
+              additionalProperties: false
+            },
+            description: "Analysis results for each email"
+          }
         },
-        strict: true
+        required: ["analyses"],
+        additionalProperties: false
       }
     }];
 
@@ -544,25 +552,23 @@ Examples:
       snippet: e.snippet || ''
     }));
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5",
-      messages: [
-        {
-          role: "system",
-          content: `Analyze emails for importance and categorization. Consider sender importance, urgency indicators, business impact, and time sensitivity.`
-        },
+      input: [
+        { role: "system", content: `Analyze emails for importance and categorization. Consider sender importance, urgency indicators, business impact, and time sensitivity.` },
         { role: "user", content: `Analyze these emails: ${JSON.stringify(emailSummaries)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "analyze_emails" } }
+      tool_choice: { type: "function", name: "analyze_emails" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'analyze_emails') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'analyze_emails') {
       throw new Error('Failed to analyze emails');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
     return result.analyses.map((analysis: any) => ({
       ...analysis,
       suggested_folder: analysis.suggested_folder || undefined
@@ -572,42 +578,39 @@ Examples:
   async generateAggregatedSummary(emails: Email[]): Promise<string> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "generate_summary",
-        description: "Generate a natural language summary of multiple emails",
-        parameters: {
-          type: "object",
-          properties: {
-            summary: {
-              type: "string",
-              description: "A comprehensive natural language summary of the emails"
-            },
-            key_topics: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Main topics discussed across the emails"
-            },
-            important_items: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Important items that need attention"
-            },
-            action_required: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Actions that need to be taken"
-            }
+      name: "generate_summary",
+      description: "Generate a natural language summary of multiple emails",
+      parameters: {
+        type: "object",
+        properties: {
+          summary: {
+            type: "string",
+            description: "A comprehensive natural language summary of the emails"
           },
-          required: ["summary", "key_topics", "important_items", "action_required"],
-          additionalProperties: false
+          key_topics: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Main topics discussed across the emails"
+          },
+          important_items: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Important items that need attention"
+          },
+          action_required: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Actions that need to be taken"
+          }
         },
-        strict: true
+        required: ["summary", "key_topics", "important_items", "action_required"],
+        additionalProperties: false
       }
     }];
 
@@ -626,22 +629,23 @@ Examples:
     
     Write the summary as if you're a helpful assistant briefing someone about their inbox.`;
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Summarize these emails: ${JSON.stringify(emailSummaries)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_summary" } }
+      tool_choice: { type: "function", name: "generate_summary" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_summary') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_summary') {
       throw new Error('Failed to generate summary');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
 
     // Combine the structured data into a natural summary
     let fullSummary = result.summary;
@@ -660,41 +664,38 @@ Examples:
   async extractActionItems(email: Email): Promise<ActionItem[]> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "extract_action_items",
-        description: "Extract action items from an email",
-        parameters: {
-          type: "object",
-          properties: {
-            action_items: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  task: {
-                    type: "string",
-                    description: "The action item or task"
-                  },
-                  deadline: {
-                    type: ["string", "null"],
-                    description: "Deadline if mentioned"
-                  },
-                  priority: {
-                    type: "string",
-                    enum: ["low", "medium", "high"],
-                    description: "Priority level"
-                  }
+      name: "extract_action_items",
+      description: "Extract action items from an email",
+      parameters: {
+        type: "object",
+        properties: {
+          action_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                task: {
+                  type: "string",
+                  description: "The action item or task"
                 },
-                required: ["task", "deadline", "priority"],
-                additionalProperties: false
+                deadline: {
+                  type: ["string", "null"],
+                  description: "Deadline if mentioned"
+                },
+                priority: {
+                  type: "string",
+                  enum: ["low", "medium", "high"],
+                  description: "Priority level"
+                }
               },
-              description: "List of action items found"
-            }
-          },
-          required: ["action_items"],
-          additionalProperties: false
+              required: ["task", "deadline", "priority"],
+              additionalProperties: false
+            },
+            description: "List of action items found"
+          }
         },
-        strict: true
+        required: ["action_items"],
+        additionalProperties: false
       }
     }];
 
@@ -704,25 +705,23 @@ Examples:
       body: email.body || email.snippet || ''
     };
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5",
-      messages: [
-        {
-          role: "system",
-          content: "Extract all actionable items from the email. Be thorough."
-        },
+      input: [
+        { role: "system", content: "Extract all actionable items from the email. Be thorough." },
         { role: "user", content: `Extract action items from: ${JSON.stringify(emailContent)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "extract_action_items" } }
+      tool_choice: { type: "function", name: "extract_action_items" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'extract_action_items') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'extract_action_items') {
       throw new Error('Failed to extract action items');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
     return result.action_items.map((item: any) => ({
       ...item,
       deadline: item.deadline || undefined
@@ -736,90 +735,82 @@ Examples:
   }> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "generate_folder_rules",
-        description: "Generate smart folder rules based on description",
-        parameters: {
-          type: "object",
-          properties: {
-            name: {
-              type: "string",
-              description: "Folder name"
-            },
-            rules: {
-              type: "array",
-              items: {
-                type: "string",
-                description: "A folder rule"
-              },
-              description: "List of rules for the folder"
-            },
-            description: {
-              type: "string",
-              description: "Folder description"
-            }
+      name: "generate_folder_rules",
+      description: "Generate smart folder rules based on description",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Folder name"
           },
-          required: ["name", "rules", "description"],
-          additionalProperties: false
+          rules: {
+            type: "array",
+            items: {
+              type: "string",
+              description: "A folder rule"
+            },
+            description: "List of rules for the folder"
+          },
+          description: {
+            type: "string",
+            description: "Folder description"
+          }
         },
-        strict: true
+        required: ["name", "rules", "description"],
+        additionalProperties: false
       }
     }];
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
-        {
-          role: "system",
-          content: "Generate smart folder rules based on the user description."
-        },
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
+        { role: "system", content: "Generate smart folder rules based on the user description." },
         { role: "user", content: folderDescription }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_folder_rules" } }
+      tool_choice: { type: "function", name: "generate_folder_rules" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_folder_rules') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_folder_rules') {
       throw new Error('Failed to generate folder rules');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 
   async categorizeEmails(emails: Email[]): Promise<Map<string, string[]>> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "categorize_emails",
-        description: "Categorize emails into logical groups",
-        parameters: {
-          type: "object",
-          properties: {
-            categories: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  email_id: {
-                    type: "string",
-                    description: "Email ID"
-                  },
-                  category: {
-                    type: "string",
-                    description: "Category name"
-                  }
+      name: "categorize_emails",
+      description: "Categorize emails into logical groups",
+      parameters: {
+        type: "object",
+        properties: {
+          categories: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                email_id: {
+                  type: "string",
+                  description: "Email ID"
                 },
-                required: ["email_id", "category"],
-                additionalProperties: false
+                category: {
+                  type: "string",
+                  description: "Category name"
+                }
               },
-              description: "Email categorizations"
-            }
-          },
-          required: ["categories"],
-          additionalProperties: false
+              required: ["email_id", "category"],
+              additionalProperties: false
+            },
+            description: "Email categorizations"
+          }
         },
-        strict: true
+        required: ["categories"],
+        additionalProperties: false
       }
     }];
 
@@ -830,25 +821,23 @@ Examples:
       snippet: e.snippet || ''
     }));
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
-        {
-          role: "system",
-          content: "Categorize emails into logical groups like: receipts, newsletters, work, personal, etc."
-        },
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
+        { role: "system", content: "Categorize emails into logical groups like: receipts, newsletters, work, personal, etc." },
         { role: "user", content: JSON.stringify(emailSummaries) }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "categorize_emails" } }
+      tool_choice: { type: "function", name: "categorize_emails" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'categorize_emails') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'categorize_emails') {
       throw new Error('Failed to categorize emails');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
 
     // Group by category
     const categoryMap = new Map<string, string[]>();
@@ -871,65 +860,57 @@ Examples:
   }> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "understand_organization",
-        description: "Understand email organization intent from natural language",
-        parameters: {
-          type: "object",
-          properties: {
-            rules: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  condition: {
-                    type: "string",
-                    description: "The condition to match emails (e.g., 'subject contains invoice', 'from newsletter@')"
-                  },
-                  action: {
-                    type: "string",
-                    description: "The action to take (e.g., 'move to folder', 'star', 'mark read')"
-                  },
-                  target: {
-                    type: ["string", "null"],
-                    description: "The target for the action (e.g., folder name, null for star/mark actions)"
-                  }
+      name: "understand_organization",
+      description: "Understand email organization intent from natural language",
+      parameters: {
+        type: "object",
+        properties: {
+          rules: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                condition: {
+                  type: "string",
+                  description: "The condition to match emails (e.g., 'subject contains invoice', 'from newsletter@')"
                 },
-                required: ["condition", "action", "target"],
-                additionalProperties: false
+                action: {
+                  type: "string",
+                  description: "The action to take (e.g., 'move to folder', 'star', 'mark read')"
+                },
+                target: {
+                  type: ["string", "null"],
+                  description: "The target for the action (e.g., folder name, null for star/mark actions)"
+                }
               },
-              description: "List of organization rules"
-            }
-          },
-          required: ["rules"],
-          additionalProperties: false
+              required: ["condition", "action", "target"],
+              additionalProperties: false
+            },
+            description: "List of organization rules"
+          }
         },
-        strict: true
+        required: ["rules"],
+        additionalProperties: false
       }
     }];
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
-        {
-          role: "system",
-          content: "You are an email assistant that understands organization intents. Convert natural language into email organization rules."
-        },
-        {
-          role: "user",
-          content: query
-        }
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
+        { role: "system", content: "You are an email assistant that understands organization intents. Convert natural language into email organization rules." },
+        { role: "user", content: query }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "understand_organization" } }
+      tool_choice: { type: "function", name: "understand_organization" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || !toolCall.function.arguments) {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || !toolCall.arguments) {
       throw new Error('Failed to understand organization intent');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
     return {
       rules: result.rules.map((rule: any) => ({
         condition: rule.condition,
@@ -948,49 +929,46 @@ Examples:
   }> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "generate_daily_insights",
-        description: "Generate actionable insights from daily email activity",
-        parameters: {
-          type: "object",
-          properties: {
-            executive_summary: {
-              type: "string",
-              description: "A concise executive summary of the day's email activity with actionable insights"
-            },
-            key_highlights: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "3-5 key highlights from today's emails"
-            },
-            action_priorities: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Prioritized list of actions the user should take"
-            },
-            patterns: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Communication patterns or trends observed"
-            },
-            recommendations: {
-              type: "array",
-              items: {
-                type: "string"
-              },
-              description: "Strategic recommendations for email management"
-            }
+      name: "generate_daily_insights",
+      description: "Generate actionable insights from daily email activity",
+      parameters: {
+        type: "object",
+        properties: {
+          executive_summary: {
+            type: "string",
+            description: "A concise executive summary of the day's email activity with actionable insights"
           },
-          required: ["executive_summary", "key_highlights", "action_priorities", "patterns", "recommendations"],
-          additionalProperties: false
+          key_highlights: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "3-5 key highlights from today's emails"
+          },
+          action_priorities: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Prioritized list of actions the user should take"
+          },
+          patterns: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Communication patterns or trends observed"
+          },
+          recommendations: {
+            type: "array",
+            items: {
+              type: "string"
+            },
+            description: "Strategic recommendations for email management"
+          }
         },
-        strict: true
+        required: ["executive_summary", "key_highlights", "action_priorities", "patterns", "recommendations"],
+        additionalProperties: false
       }
     }];
 
@@ -1011,22 +989,23 @@ Examples:
     
     Focus on actionable insights, not just statistics. Help the user understand what's important and what to do about it.`;
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these emails from today: ${JSON.stringify(emailSummaries.slice(0, 50))}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_daily_insights" } }
+      tool_choice: { type: "function", name: "generate_daily_insights" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_daily_insights') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_daily_insights') {
       throw new Error('Failed to generate daily insights');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 
   async understandInsightsQuery(query: string): Promise<{
@@ -1036,30 +1015,27 @@ Examples:
   }> {
     const tools = [{
       type: "function" as const,
-      function: {
-        name: "understand_insights_request",
-        description: "Understand what kind of email insights the user wants",
-        parameters: {
-          type: "object",
-          properties: {
-            insight_type: {
-              type: "string",
-              enum: ["daily_summary", "weekly_summary", "important_items", "response_needed", "analytics", "relationships"],
-              description: "The type of insight requested"
-            },
-            time_period: {
-              type: ["string", "null"],
-              description: "Time period for the insights (e.g., 'today', 'this week', 'last month')"
-            },
-            focus_area: {
-              type: ["string", "null"],
-              description: "Specific area to focus on (e.g., 'project X', 'client emails')"
-            }
+      name: "understand_insights_request",
+      description: "Understand what kind of email insights the user wants",
+      parameters: {
+        type: "object",
+        properties: {
+          insight_type: {
+            type: "string",
+            enum: ["daily_summary", "weekly_summary", "important_items", "response_needed", "analytics", "relationships"],
+            description: "The type of insight requested"
           },
-          required: ["insight_type", "time_period", "focus_area"],
-          additionalProperties: false
+          time_period: {
+            type: ["string", "null"],
+            description: "Time period for the insights (e.g., 'today', 'this week', 'last month')"
+          },
+          focus_area: {
+            type: ["string", "null"],
+            description: "Specific area to focus on (e.g., 'project X', 'client emails')"
+          }
         },
-        strict: true
+        required: ["insight_type", "time_period", "focus_area"],
+        additionalProperties: false
       }
     }];
 
@@ -1073,22 +1049,23 @@ Examples:
 - "what important emails did I get this week?" → important_items, time_period: "this week"
 - "weekly summary" → weekly_summary`;
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5-mini",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: query }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "understand_insights_request" } }
+      tool_choice: { type: "function", name: "understand_insights_request" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'understand_insights_request') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'understand_insights_request') {
       throw new Error('Failed to understand insights request');
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
     return {
       insight_type: result.insight_type,
       time_period: result.time_period || undefined,
@@ -1185,22 +1162,23 @@ Examples:
     
     Focus on actionable insights and patterns that help improve email management.`;
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these emails from the past week: ${JSON.stringify(emailSummaries)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_weekly_insights" } }
+      tool_choice: { type: "function", name: "generate_weekly_insights" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_weekly_insights') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_weekly_insights') {
       throw new Error('Failed to generate weekly insights');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 
   async generateImportantItemsInsights(emails: Email[], analysis: EmailAnalysis[]): Promise<{
@@ -1303,22 +1281,23 @@ Examples:
     
     Focus on actionable insights and help the user understand what to do next.`;
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these important emails: ${JSON.stringify(importantEmails)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_important_items" } }
+      tool_choice: { type: "function", name: "generate_important_items" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_important_items') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_important_items') {
       throw new Error('Failed to generate important items insights');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 
   async generateResponseNeededInsights(emails: Email[], needsResponse: Email[]): Promise<{
@@ -1417,22 +1396,23 @@ Examples:
     
     Help the user tackle their response backlog efficiently.`;
 
-    const completion = await this.openai.chat.completions.create({
+    const completion = await (this.openai as any).responses.create({
       model: "gpt-5",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these emails needing responses: ${JSON.stringify(responseData)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_response_insights" } }
+      tool_choice: { type: "function", name: "generate_response_insights" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_response_insights') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_response_insights') {
       throw new Error('Failed to generate response insights');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 
   async generateAnalyticsInsights(
@@ -1589,22 +1569,23 @@ Examples:
     
     Focus on insights that help improve email productivity and communication effectiveness.`;
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these email analytics: ${JSON.stringify(analyticsData)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_analytics" } }
+      tool_choice: { type: "function", name: "generate_analytics" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_analytics') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_analytics') {
       throw new Error('Failed to generate analytics insights');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 
   async generateRelationshipInsights(
@@ -1758,21 +1739,22 @@ Examples:
     
     Focus on helping improve professional relationships and communication effectiveness.`;
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4.1",
-      messages: [
+    const completion = await (this.openai as any).responses.create({
+      model: "gpt-5-mini",
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analyze these email relationships: ${JSON.stringify(relationships)}` }
       ],
       tools: tools,
-      tool_choice: { type: "function", function: { name: "generate_relationship_insights" } }
+      tool_choice: { type: "function", name: "generate_relationship_insights" },
+      ...this.buildGpt5Params()
     });
 
-    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'generate_relationship_insights') {
+    const toolCall = this.extractFirstToolCall(completion);
+    if (!toolCall || toolCall.name !== 'generate_relationship_insights') {
       throw new Error('Failed to generate relationship insights');
     }
 
-    return JSON.parse(toolCall.function.arguments);
+    return JSON.parse(toolCall.arguments);
   }
 }

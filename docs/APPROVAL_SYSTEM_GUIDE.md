@@ -1,6 +1,6 @@
-# Juli Approval System Guide
+# A2A Stateless Approval System Guide
 
-Understanding how the approval system works between Juli and MCP servers for safe execution of sensitive actions.
+Understanding how the stateless approval system works between a client (like Juli Brain) and an A2A agent for safe execution of sensitive actions.
 
 ## Overview
 
@@ -11,7 +11,7 @@ The approval system ensures users maintain control over potentially impactful ac
 ### Flow Diagram
 
 ```
-User Request → MCP Server → Needs Approval? → Return Approval Request
+User Request → Agent (tool.execute) → Needs Approval? → Return Approval Request
                                 ↓                        ↓
                               No                    Juli Shows UI
                                 ↓                        ↓
@@ -24,7 +24,7 @@ User Request → MCP Server → Needs Approval? → Return Approval Request
 
 ### The Stateless Approval Protocol
 
-**Key Principle**: MCP servers don't store pending approvals. Instead, they return all data needed to execute the action, and Juli handles the approval UI and retry.
+**Key Principle**: A2A agents don't store pending approvals. Instead, they return all data needed to execute the action, and the client handles the approval UI and retry via `tool.approve`.
 
 ## Implementation
 
@@ -46,19 +46,20 @@ function needsApproval(action: any): boolean {
 }
 ```
 
-### 2. Approval Response Format
+### 2. Approval Response Format (JSON-RPC result)
 
-```typescript
-interface ApprovalRequiredResponse {
-  needs_approval: true;
-  action_type: string;        // Type of action requiring approval
-  action_data: any;          // Complete data needed to execute
-  preview: {
-    summary: string;         // One-line summary
-    details: any;           // Detailed preview info
-    risks?: string[];       // Optional warnings
-  };
-  suggested_modifications?: any;  // Optional suggestions
+```json
+{
+  "result": {
+    "needs_approval": true,
+    "action_type": "send_email",
+    "action_data": { /* complete data */ },
+    "preview": {
+      "summary": "...",
+      "details": { },
+      "risks": []
+    }
+  }
 }
 ```
 
@@ -155,29 +156,29 @@ async function handleOrganizeInbox(params: any) {
 }
 ```
 
-## What Juli Handles
+## What the Client Handles
 
 ### 1. Approval UI
 
 When Juli receives a `needs_approval` response, it:
 
 ```typescript
-// Juli's internal handling
-if (response.needs_approval) {
+// Client's internal handling
+if (response.result?.needs_approval) {
   // Show native approval dialog
   const userDecision = await showApprovalDialog({
-    title: response.action_type,
-    summary: response.preview.summary,
-    details: response.preview.details,
-    risks: response.preview.risks
+    title: response.result.action_type,
+    summary: response.result.preview.summary,
+    details: response.result.preview.details,
+    risks: response.result.preview.risks
   });
   
   if (userDecision.approved) {
-    // Retry with approval
-    const finalResponse = await callMCPTool(toolName, {
-      ...originalParams,
-      approved: true,
-      action_data: response.action_data
+    // Approve via RPC
+    const finalResponse = await agent.rpc('tool.approve', {
+      tool: toolName,
+      original_arguments: response.result.action_data.original_params,
+      action_data: response.result.action_data
     });
     return finalResponse;
   } else {
@@ -192,7 +193,7 @@ if (response.needs_approval) {
 
 ### 2. Approval UI Components
 
-Juli renders a beautiful approval dialog with:
+The client should render a clear approval dialog with:
 - Clear action summary
 - Detailed preview (formatted based on action type)
 - Risk warnings in red

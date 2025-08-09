@@ -57,7 +57,7 @@ When a user first installs your MCP:
 
 ```typescript
 // 1) Juli checks if setup is needed
-GET /mcp/needs-setup
+GET /setup/status
 Response: { "needs_setup": true, "connect_url": "/setup/connect-url" }
 
 // 2) Juli fetches the Hosted Auth URL
@@ -73,12 +73,64 @@ Response: { "success": true, "grant_id": "...", "email": "user@example.com" }
 Headers: { "X-User-Credential-NYLAS_GRANT_ID": "..." }
 ```
 
+### Agent-to-Agent (A2A)
+
+For inter-agent integrations, use JSON‑RPC A2A:
+
+- Discovery: `GET /.well-known/a2a.json` (Agent Card)
+- RPC endpoint: `POST /a2a/rpc` (JSON‑RPC 2.0)
+- Methods:
+  - `agent.card` → Agent Card
+  - `agent.handshake` → `{ agent, card, server_time }`
+  - `tool.execute` → params `{ tool, arguments, user_context, request_id }`
+  - `tool.approve` → params `{ tool, original_arguments, action_data, user_context, request_id }`
+
+Auth:
+- Use the Agent Card `auth` scheme(s). OIDC ID token in `Authorization: Bearer <id_token>` (audience per card). Dev: optional `X-A2A-Dev-Secret`.
+
+The server remains stateless; only `NYLAS_API_KEY` is in env. User grant is injected per-request.
+
+### Credential acquisition (optional manifest)
+
+Agents may publish `GET /.well-known/a2a-credentials.json` describing how Brain can obtain credentials it must inject. Example:
+
+```json
+{
+  "credentials": [
+    {
+      "key": "EMAIL_ACCOUNT_GRANT",
+      "display_name": "Email Account Grant",
+      "sensitive": true,
+      "flows": [
+        {
+          "type": "hosted_auth",
+          "connect_url": "/setup/connect-url",
+          "callback": "/api/nylas-email/callback",
+          "provider_scopes": {
+            "google": [
+              "openid",
+              "https://www.googleapis.com/auth/userinfo.email",
+              "https://www.googleapis.com/auth/userinfo.profile",
+              "https://www.googleapis.com/auth/gmail.modify",
+              "https://www.googleapis.com/auth/contacts",
+              "https://www.googleapis.com/auth/contacts.readonly",
+              "https://www.googleapis.com/auth/contacts.other.readonly"
+            ],
+            "microsoft": ["Mail.ReadWrite","Mail.Send","Contacts.Read","Contacts.Read.Shared"]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Request Format
 
 All tool execution requests follow this format:
 
 ```typescript
-POST /mcp/tools/{toolName}
+POST /a2a/rpc (JSON-RPC 2.0)
 Headers: {
   "Content-Type": "application/json",
   "X-Request-ID": "unique-request-id",
@@ -122,7 +174,7 @@ Body: {
 ### Tool Discovery Format
 
 ```typescript
-GET /mcp/tools
+GET /.well-known/a2a.json
 Response: {
   "tools": [
     {
@@ -245,7 +297,7 @@ class MCPServer {
       res.json({ status: 'healthy', version: '1.0.0' });
     });
     
-    this.app.get('/mcp/needs-setup', (req, res) => {
+    this.app.get('/setup/status', (req, res) => {
       const needsSetup = !this.hasRequiredCredentials(req.credentials);
       res.json({
         needs_setup: needsSetup,
@@ -255,18 +307,28 @@ class MCPServer {
       });
     });
     
-    this.app.get('/mcp/tools', (req, res) => {
-      const tools = Array.from(this.tools.values()).map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.getSchema()
-      }));
-      res.json({ tools });
-    });
+    // Discovery endpoint - replaced by A2A Agent Card at /.well-known/a2a.json
+    // Legacy endpoint removed - tools are now exposed via A2A capabilities
     
-    this.app.post('/mcp/tools/:toolName', async (req, res) => {
+    // Tool execution - replaced by A2A JSON-RPC at /a2a/rpc
+    // Legacy REST endpoint removed - use JSON-RPC 'tool.execute' method
+    
+    // A2A JSON-RPC endpoint
+    this.app.post('/a2a/rpc', async (req, res) => {
+      // Authenticate agent (OIDC or shared secret)
+      const agent = await this.authenticateAgent(req);
+      if (!agent) {
+        return res.status(401).json({ 
+          jsonrpc: '2.0', 
+          id: null, 
+          error: { code: 401, message: 'unauthorized_agent' } 
+        });
+      }
+      
+      // Handle JSON-RPC request
+      const { method, params, id } = req.body;
       try {
-        const { toolName } = req.params;
+        const { toolName } = params || {};
         const tool = this.tools.get(toolName);
         
         if (!tool) {
@@ -559,40 +621,50 @@ async function deleteData(params, credentials) {
 ### Testing Your MCP
 
 ```typescript
-// Test the full flow
-describe('MCP Server', () => {
-  it('should handle the complete setup flow', async () => {
-    // 1. Check needs setup
-    const needsSetup = await fetch('/mcp/needs-setup');
-    expect(needsSetup.body.needs_setup).toBe(true);
+// Test the A2A flow
+describe('A2A MCP Server', () => {
+  it('should handle agent discovery and authentication', async () => {
+    // 1. Discovery via well-known endpoint
+    const discovery = await fetch('/.well-known/a2a.json');
+    expect(discovery.body.agent_id).toBe('inbox-mcp');
+    expect(discovery.body.rpc.endpoint).toBe('/a2a/rpc');
     
-    // 2. Get instructions
-    const instructions = await fetch('/setup/instructions');
-    expect(instructions.body.steps).toHaveLength(3);
-    
-    // 3. Validate credentials
-    const validation = await fetch('/setup/validate', {
+    // 2. Get agent card via JSON-RPC
+    const cardResponse = await fetch('/a2a/rpc', {
       method: 'POST',
+      headers: { 'X-A2A-Dev-Secret': 'test-secret' },
       body: {
-        nylas_api_key: 'env_server_key',
-        nylas_grant_id: 'user_grant_id'
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'agent.card',
+        params: {}
       }
     });
-    expect(validation.body.valid).toBe(true);
+    expect(cardResponse.body.result.agent_id).toBe('inbox-mcp');
   });
   
-  it('should execute tools with credentials', async () => {
-    const response = await fetch('/mcp/tools/my_tool', {
+  it('should execute tools via JSON-RPC', async () => {
+    const response = await fetch('/a2a/rpc', {
       method: 'POST',
       headers: {
-        'X-User-Credential-API_KEY': 'test-key'
+        'X-A2A-Dev-Secret': 'test-secret'
       },
       body: {
-        query: 'test query'
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tool.execute',
+        params: {
+          tool: 'manage_email',
+          arguments: { action: 'send', query: 'test email' },
+          user_context: {
+            credentials: { EMAIL_ACCOUNT_GRANT: 'user_grant_id' }
+          }
+        }
       }
     });
     
-    expect(response.body.success).toBe(true);
+    expect(response.body.result).toBeDefined();
+    expect(response.body.error).toBeUndefined();
   });
 });
 ```

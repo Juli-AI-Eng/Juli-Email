@@ -1,12 +1,12 @@
 import Nylas from 'nylas';
 import { EmailAI } from '../ai/emailAI.js';
 // ApprovalManager removed - using stateless approval flow
-import { 
-  ManageEmailParams, 
-  Email, 
+import {
+  ManageEmailParams,
+  Email,
   EmailIntent,
   GeneratedEmail,
-  ApprovalRequiredResponse 
+  ApprovalRequiredResponse
 } from '../types/index.js';
 
 export class ManageEmailTool {
@@ -29,6 +29,7 @@ export class ManageEmailTool {
   }
 
   async execute(params: ManageEmailParams): Promise<any> {
+    console.log('[manage_email] execute called with action:', params.action, 'require_approval:', params.require_approval);
     // Check if this is an approved action execution
     if (params.approved && params.action_data) {
       return this.executeApprovedAction(params);
@@ -42,10 +43,29 @@ export class ManageEmailTool {
     try {
       // Process the natural language query
       const context = await this.getContext(params);
-      const intent = await this.emailAI.understandQuery(params.query, context);
+
+      // Fast-path: if the query already contains one or more email addresses and we're not executing immediately,
+      // avoid an AI call and synthesize an intent directly.
+      const emailMatches = Array.from(params.query.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig)).map(m => m[0]);
+      console.log('[manage_email] detected emails in query:', emailMatches);
+      const hasDirectEmails = emailMatches.length > 0;
+      if (hasDirectEmails) {
+        console.log('🛣️  Fast-path: detected direct email addresses in query → skipping AI intent extraction');
+      }
+
+      const intent: EmailIntent = hasDirectEmails ? {
+        intent: params.action,
+        recipients: emailMatches,
+        subject: '',
+        key_points: [params.query],
+        urgency: 'normal',
+        tone: 'professional'
+      } as any : await this.emailAI.understandQuery(params.query, context);
+      console.log('[manage_email] intent prepared. recipients:', intent.recipients);
 
       // Generate email content based on intent
       const emailContent = await this.generateContent(intent, params, context);
+      console.log('[manage_email] generated content recipients:', emailContent.to);
 
       // Handle different actions
       switch (params.action) {
@@ -57,10 +77,10 @@ export class ManageEmailTool {
           } else {
             return this.sendEmail(emailContent);
           }
-        
+
         case 'draft':
           return this.createDraft(emailContent);
-        
+
         default:
           throw new Error(`Unknown action: ${params.action}`);
       }
@@ -79,7 +99,7 @@ export class ManageEmailTool {
           ]
         };
       }
-      
+
       // Re-throw other errors
       throw error;
     }
@@ -120,11 +140,11 @@ export class ManageEmailTool {
     if (!senderMatch) return null;
 
     const senderName = senderMatch[1];
-    
+
     try {
       // First, try to find contacts with this name
       const contacts = await this.lookupContactsByName(senderName);
-      
+
       if (contacts.length > 0) {
         // Search for messages from the resolved email addresses
         for (const contact of contacts) {
@@ -147,7 +167,7 @@ export class ManageEmailTool {
           }
         }
       }
-      
+
       // Fallback: Try searching by name in the message content
       const messages = await this.nylas.messages.list({
         identifier: this.grantId,
@@ -184,7 +204,7 @@ export class ManageEmailTool {
 
       if (contacts.data.length > 0) {
         const matchingContact = contacts.data[0];
-        
+
         // Build full name from available parts
         const nameParts = [
           matchingContact.givenName,
@@ -232,11 +252,11 @@ export class ManageEmailTool {
   private async lookupContactsByName(name: string): Promise<Array<{ email: string; name: string }>> {
     const results: Array<{ email: string; name: string }> = [];
     const searchName = name.toLowerCase().trim();
-    
+
     try {
       // Search in all three sources: address_book, domain, and inbox
       const sources = ['address_book', 'domain', 'inbox'] as const;
-      
+
       for (const source of sources) {
         try {
           // Fetch contacts from each source with a reasonable limit
@@ -255,7 +275,7 @@ export class ManageEmailTool {
 
             // Build possible name variations to search
             const nameVariations: string[] = [];
-            
+
             // Full name from parts
             const nameParts = [
               contact.givenName,
@@ -265,27 +285,27 @@ export class ManageEmailTool {
             if (nameParts.length > 0) {
               nameVariations.push(nameParts.join(' '));
             }
-            
+
             // Individual name parts
             if (contact.givenName) nameVariations.push(contact.givenName);
             if (contact.surname) nameVariations.push(contact.surname);
             if (contact.nickname) nameVariations.push(contact.nickname);
             if (contact.displayName) nameVariations.push(contact.displayName);
-            
+
             // Check if any name variation matches our search
-            const matches = nameVariations.some(variation => 
+            const matches = nameVariations.some(variation =>
               variation.toLowerCase().includes(searchName) ||
               searchName.includes(variation.toLowerCase())
             );
-            
+
             if (matches) {
               // Get the best display name for this contact
-              const displayName = contact.displayName || 
-                                  (nameParts.length > 0 ? nameParts.join(' ') : null) ||
-                                  contact.nickname ||
-                                  contact.givenName ||
-                                  emails[0].email;
-              
+              const displayName = contact.displayName ||
+                (nameParts.length > 0 ? nameParts.join(' ') : null) ||
+                contact.nickname ||
+                contact.givenName ||
+                emails[0].email;
+
               // Add all email addresses for this contact
               for (const email of emails) {
                 if (email.email) {
@@ -302,12 +322,12 @@ export class ManageEmailTool {
           // Continue with other sources even if one fails
         }
       }
-      
+
       // Remove duplicates based on email
       const uniqueResults = Array.from(
         new Map(results.map(item => [item.email, item])).values()
       );
-      
+
       return uniqueResults;
     } catch (error) {
       console.error('Error looking up contacts by name:', error);
@@ -333,7 +353,7 @@ export class ManageEmailTool {
         if (senderName) {
           this.senderInfo.name = senderName;
         }
-        
+
         console.log('📧 Sender info:', this.senderInfo);
       }
     } catch (error) {
@@ -352,45 +372,79 @@ export class ManageEmailTool {
     context?: any
   ): Promise<GeneratedEmail> {
     const originalMessage = context?.originalMessage;
-    
+
     // First, resolve any name-based recipients to email addresses
     const resolvedRecipients: string[] = [];
     const unresolvedNames: string[] = [];
-    
+
     if (intent.recipients && intent.recipients.length > 0) {
       for (const recipient of intent.recipients) {
-        // Check if it looks like an email address (contains @)
+        // If full email is provided, accept it without contact lookups
         if (recipient.includes('@')) {
           resolvedRecipients.push(recipient);
-        } else {
-          // It's likely a name, try to resolve it
+          continue;
+        }
+
+        // Name-only: attempt contact resolution, but handle lack of scopes gracefully
+        try {
           const contacts = await this.lookupContactsByName(recipient);
-          
           if (contacts.length === 0) {
             unresolvedNames.push(recipient);
           } else if (contacts.length === 1) {
-            // Single match, use it
             resolvedRecipients.push(contacts[0].email);
             console.log(`✅ Resolved "${recipient}" to ${contacts[0].email}`);
           } else {
-            // Multiple matches, for now use the first one but log a warning
-            // In a future enhancement, we could ask for clarification
             resolvedRecipients.push(contacts[0].email);
             console.log(`⚠️ Multiple contacts found for "${recipient}", using ${contacts[0].email}`);
             console.log('Other matches:', contacts.slice(1).map(c => `${c.name} (${c.email})`).join(', '));
           }
+        } catch (err: any) {
+          // If contacts API is forbidden due to missing scopes, treat as unresolved
+          if (err?.statusCode === 403 || /insufficient authentication scopes/i.test(err?.message || '')) {
+            unresolvedNames.push(recipient);
+          } else {
+            throw err;
+          }
         }
       }
     }
-    
+
     // If we couldn't resolve some names, throw an error
     if (unresolvedNames.length > 0) {
       throw new Error(`Could not find email addresses for: ${unresolvedNames.join(', ')}. Please use full email addresses or ensure the contacts exist in your address book.`);
     }
-    
+
     // Update intent with resolved email addresses
     intent.recipients = resolvedRecipients;
-    
+
+    // Fast-path: if we have concrete recipients and this is an approval/draft flow,
+    // synthesize a reasonable email without invoking the AI to avoid external failures.
+    if (params.require_approval !== false && intent.recipients.length > 0) {
+      const synthetic: GeneratedEmail = {
+        to: intent.recipients,
+        cc: undefined,
+        bcc: undefined,
+        subject: intent.subject || 'Review email draft',
+        body: `Hello,\n\n${intent.key_points?.join(' ') || 'Here is a proposed message.'}\n\nBest,\n${this.senderInfo?.name || 'Me'}`,
+        tone_confirmation: undefined
+      } as GeneratedEmail;
+
+      // Add reply/forward context if applicable
+      if (params.action === 'reply' && originalMessage) {
+        (synthetic as any).in_reply_to = originalMessage.id;
+        if (!synthetic.subject.startsWith('Re:')) {
+          synthetic.subject = `Re: ${originalMessage.subject}`;
+        }
+      } else if (params.action === 'forward' && originalMessage) {
+        if (!synthetic.subject.startsWith('Fwd:')) {
+          synthetic.subject = `Fwd: ${originalMessage.subject}`;
+        }
+        synthetic.body += `\n\n--- Original Message ---\n${originalMessage.body || originalMessage.snippet}`;
+      }
+
+      return synthetic;
+    }
+
     // Lookup contact names for recipients (to get proper display names)
     const recipientNames: { [email: string]: string } = {};
     if (intent.recipients && intent.recipients.length > 0) {
@@ -403,8 +457,26 @@ export class ManageEmailTool {
         })
       );
     }
-    
-    let generatedEmail = await this.emailAI.generateEmailContent(intent, originalMessage, recipientNames, this.senderInfo);
+
+    let generatedEmail: GeneratedEmail;
+    try {
+      generatedEmail = await this.emailAI.generateEmailContent(
+        intent,
+        originalMessage,
+        recipientNames,
+        this.senderInfo
+      );
+    } catch (err: any) {
+      console.error('AI content generation failed, using fallback:', err?.message || err);
+      generatedEmail = {
+        to: intent.recipients,
+        subject: intent.subject || 'Draft email',
+        body: `Hello,\n\n${intent.key_points?.join(' ') || 'Here is my message.'}\n\nBest,\n${this.senderInfo?.name || 'Me'}`,
+        cc: undefined,
+        bcc: undefined,
+        tone_confirmation: undefined
+      } as GeneratedEmail;
+    }
 
     // Add reply/forward specific handling
     if (params.action === 'reply' && originalMessage) {
@@ -459,32 +531,32 @@ export class ManageEmailTool {
 
   private assessEmailRisks(emailContent: GeneratedEmail, params: ManageEmailParams): string[] {
     const risks: string[] = [];
-    
+
     // Check for multiple recipients
-    const totalRecipients = emailContent.to.length + 
-      (emailContent.cc?.length || 0) + 
+    const totalRecipients = emailContent.to.length +
+      (emailContent.cc?.length || 0) +
       (emailContent.bcc?.length || 0);
-    
+
     if (totalRecipients > 5) {
       risks.push(`Sending to ${totalRecipients} recipients`);
     }
-    
+
     // Check for external domains
     const internalDomain = process.env.INTERNAL_EMAIL_DOMAIN;
     if (internalDomain) {
-      const externalRecipients = emailContent.to.filter(email => 
+      const externalRecipients = emailContent.to.filter(email =>
         !email.endsWith(`@${internalDomain}`)
       );
       if (externalRecipients.length > 0) {
         risks.push('Contains external recipients');
       }
     }
-    
+
     // Check for reply-all scenarios
     if (params.action === 'reply' && totalRecipients > 2) {
       risks.push('Reply-all to multiple recipients');
     }
-    
+
     return risks;
   }
 
@@ -492,9 +564,9 @@ export class ManageEmailTool {
     if (!params.action_data?.email_content) {
       throw new Error('Missing email content in approved action');
     }
-    
+
     const { email_content } = params.action_data;
-    
+
     try {
       const result = await this.sendEmail(email_content);
       return {
@@ -514,7 +586,7 @@ export class ManageEmailTool {
       const htmlBody = emailContent.body
         .replace(/\n\n/g, '<br><br>')  // Double newline = paragraph break
         .replace(/\n/g, '<br>');        // Single newline = line break
-      
+
       const message = await this.nylas.messages.send({
         identifier: this.grantId,
         requestBody: {
@@ -543,7 +615,7 @@ export class ManageEmailTool {
       const htmlBody = emailContent.body
         .replace(/\n\n/g, '<br><br>')  // Double newline = paragraph break
         .replace(/\n/g, '<br>');        // Single newline = line break
-      
+
       const draft = await this.nylas.drafts.create({
         identifier: this.grantId,
         requestBody: {
