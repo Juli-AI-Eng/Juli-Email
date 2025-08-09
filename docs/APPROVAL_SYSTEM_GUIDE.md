@@ -4,7 +4,7 @@ Understanding how the stateless approval system works between a client (like Jul
 
 ## Overview
 
-The approval system ensures users maintain control over potentially impactful actions. When an MCP server needs user confirmation before proceeding, it returns a special response that Juli intercepts and handles with a native UI.
+The approval system ensures users maintain control over potentially impactful actions. When an A2A agent needs user confirmation before proceeding, it returns a special response that Juli intercepts and handles with a native UI.
 
 ## How It Works
 

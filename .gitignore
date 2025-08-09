@@ -93,3 +93,16 @@ pnpm-lock.yaml
 
 # Smithery config (if not needed for public)
 smithery.yaml
+
+# AI/Tool generated files
+*.repomix*
+.repomix*
+vibe-tools.config.json
+juli-toolkit-config.json
+CLAUDE.md
+
+# Cursor IDE
+.cursor/
+
+# External infrastructure
+infra-setup/

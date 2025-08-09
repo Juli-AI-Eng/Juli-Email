@@ -1,8 +1,9 @@
-# Inbox MCP Tools Documentation
+# Inbox Email Assistant Tools Documentation
 
-Comprehensive documentation for all tools available in the Inbox MCP server, including the setup endpoint.
+Comprehensive documentation for all tools available in the Inbox Email Assistant agent via the A2A JSON-RPC protocol.
 
 ## Table of Contents
+- [How Tool Execution Works](#how-tool-execution-works)
 - [Authentication & Credentials](#authentication--credentials)
 - [Setup Tool](#setup-tool)
 - [manage_email](#manage_email)
@@ -13,9 +14,56 @@ Comprehensive documentation for all tools available in the Inbox MCP server, inc
 
 ---
 
+## How Tool Execution Works
+
+**IMPORTANT**: Unlike REST APIs where the tool name is in the URL path, A2A JSON-RPC puts the tool name in the request body.
+
+### Step 1: Agent Discovers Available Tools
+```bash
+GET /.well-known/a2a.json
+```
+Returns a list of available tools and their schemas.
+
+### Step 2: Agent Executes a Tool
+```bash
+POST /a2a/rpc
+```
+With JSON-RPC body specifying:
+- `method`: Either "tool.execute" or "tool.approve"
+- `params.tool`: **THE TOOL NAME** (e.g., "manage_email", "find_emails")
+- `params.arguments`: Tool-specific parameters
+- `params.user_context.credentials`: Authentication (EMAIL_ACCOUNT_GRANT)
+
+### Example: Calling Different Tools
+All these requests go to the SAME endpoint (`/a2a/rpc`), but execute different tools:
+
+```json
+// Execute manage_email tool
+{
+  "jsonrpc": "2.0",
+  "method": "tool.execute",
+  "params": {
+    "tool": "manage_email",  // <-- This selects the tool!
+    "arguments": { /* ... */ }
+  }
+}
+
+// Execute find_emails tool
+{
+  "jsonrpc": "2.0",
+  "method": "tool.execute",
+  "params": {
+    "tool": "find_emails",  // <-- Different tool, same endpoint!
+    "arguments": { /* ... */ }
+  }
+}
+```
+
+---
+
 ## Authentication & Credentials
 
-**Critical Information**: This MCP server is **stateless** and **never stores user credentials**.
+**Critical Information**: This agent is **stateless** and **never stores user credentials**.
 
 ### How Credentials Work
 
@@ -23,23 +71,54 @@ Comprehensive documentation for all tools available in the Inbox MCP server, inc
 2. **Storage**: Juli securely stores only the user's `grant_id`
 3. **Runtime**: For MCP, send `X-User-Credential-NYLAS_GRANT_ID`. For A2A, include `EMAIL_ACCOUNT_GRANT` (preferred) or `NYLAS_GRANT_ID` in `user_context.credentials`.
 
-### Required Headers for All Tools (MCP)
+### How to Call Tools via A2A JSON-RPC
 
-Every request to email tools must include this header:
+**IMPORTANT**: The tool name is specified in the `params.tool` field, NOT in the URL path.
 
-```http
-X-User-Credential-NYLAS_GRANT_ID: your_grant_id_here
+All tool execution requests go to the same endpoint:
+```
+POST /a2a/rpc
 ```
 
-### A2A (JSON‑RPC)
+The request body must be a JSON-RPC 2.0 message with this structure:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "unique-request-id",
+  "method": "tool.execute",
+  "params": {
+    "tool": "TOOL_NAME_HERE",  // <-- This specifies which tool!
+    "arguments": {
+      // Tool-specific parameters go here
+    },
+    "user_context": {
+      "credentials": {
+        "EMAIL_ACCOUNT_GRANT": "your_grant_id_here"
+      }
+    },
+    "request_id": "unique-request-id"
+  }
+}
+```
 
-- Discovery: `GET /.well-known/a2a.json` → Agent Card
-- Credentials: `GET /.well-known/a2a-credentials.json`
-- RPC: `POST /a2a/rpc` with methods `agent.card`, `agent.handshake`, `tool.execute`, `tool.approve`
+### A2A Protocol Overview
 
-Auth:
-- Production: `Authorization: Bearer <OIDC_ID_TOKEN>` (audience from Agent Card)
-- Dev: `X-A2A-Dev-Secret: <secret>` when enabled
+**Discovery Phase:**
+- `GET /.well-known/a2a.json` - Returns agent capabilities and available tools
+- `GET /.well-known/a2a-credentials.json` - Returns required credentials manifest
+
+**Execution Phase:**
+- `POST /a2a/rpc` - Single endpoint for all operations
+
+**Available Methods:**
+- `agent.card` - Get agent information
+- `agent.handshake` - Establish connection
+- `tool.execute` - Execute a tool (tool name in `params.tool`)
+- `tool.approve` - Execute with pre-approval (tool name in `params.tool`)
+
+**Authentication:**
+- Production: `Authorization: Bearer <OIDC_ID_TOKEN>`
+- Development: `X-A2A-Dev-Secret: <secret>` (when enabled)
 
 ### What Happens Without Credentials
 
@@ -126,20 +205,37 @@ Send, reply, forward, or draft emails using natural language. The AI understands
 ### Examples
 
 #### Send New Email
-**Request**:
+**Full A2A JSON-RPC Request**:
 ```json
 {
-  "action": "send",
-  "query": "Email Sarah about postponing tomorrow's meeting to Friday at 2pm"
+  "jsonrpc": "2.0",
+  "id": "req-001",
+  "method": "tool.execute",
+  "params": {
+    "tool": "manage_email",  // <-- THIS SPECIFIES THE TOOL!
+    "arguments": {
+      "action": "send",
+      "query": "Email Sarah about postponing tomorrow's meeting to Friday at 2pm"
+    },
+    "user_context": {
+      "credentials": {
+        "EMAIL_ACCOUNT_GRANT": "your-nylas-grant-id-here"
+      }
+    },
+    "request_id": "req-001"
+  }
 }
 ```
 
-**Response** (Needs Approval):
+**A2A JSON-RPC Response** (Needs Approval):
 ```json
 {
-  "needs_approval": true,
-  "action_type": "send_email",
-  "action_data": {
+  "jsonrpc": "2.0",
+  "id": "req-001",
+  "result": {
+    "needs_approval": true,
+    "action_type": "send_email",
+    "action_data": {
     "email_content": {
       "to": ["sarah.johnson@company.com"],
       "subject": "Meeting Reschedule - Moving to Friday",
@@ -154,16 +250,31 @@ Send, reply, forward, or draft emails using natural language. The AI understands
       "word_count": 67
     }
   }
+  }  // <-- Closes the "result" object
 }
 ```
 
 #### Reply to Email
-**Request**:
+**Full A2A JSON-RPC Request**:
 ```json
 {
-  "action": "reply",
-  "query": "Thank her for the proposal and ask for clarification on the timeline",
-  "context_message_id": "msg_abc123"
+  "jsonrpc": "2.0",
+  "id": "req-002",
+  "method": "tool.execute",
+  "params": {
+    "tool": "manage_email",  // <-- Tool name here!
+    "arguments": {
+      "action": "reply",
+      "query": "Thank her for the proposal and ask for clarification on the timeline",
+      "context_message_id": "msg_abc123"
+    },
+    "user_context": {
+      "credentials": {
+        "EMAIL_ACCOUNT_GRANT": "your-nylas-grant-id-here"
+      }
+    },
+    "request_id": "req-002"
+  }
 }
 ```
 

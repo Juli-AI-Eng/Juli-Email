@@ -1,6 +1,6 @@
-# Docker Deployment Guide for Inbox MCP
+# Docker Deployment Guide for Inbox Email Assistant
 
-This guide explains how to run Inbox MCP using Docker for easy deployment and scaling.
+This guide explains how to run Inbox Email Assistant using Docker for easy deployment and scaling.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
@@ -412,4 +412,4 @@ docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsa
 
 ## Conclusion
 
-Docker provides a consistent and scalable way to deploy Inbox MCP. This guide covers basic usage through production deployment strategies. For additional help, refer to the main README or open an issue on GitHub.
+Docker provides a consistent and scalable way to deploy Inbox Email Assistant. This guide covers basic usage through production deployment strategies. For additional help, refer to the main README or open an issue on GitHub.

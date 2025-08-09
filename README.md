@@ -28,7 +28,7 @@ This repository serves as a reference implementation for building MCP servers fo
 - Natural language tool design
 - Approval flows for sensitive actions
 
-See [docs/MCP_DEVELOPER_GUIDE.md](docs/MCP_DEVELOPER_GUIDE.md) for the complete guide.
+See [docs/MCP_DEVELOPER_GUIDE.md](docs/MCP_DEVELOPER_GUIDE.md) for the complete A2A developer guide.
 
 ### Agent Quickstart (A2A JSON‑RPC)
 
@@ -125,7 +125,7 @@ Juli stores the grant_id and injects it as `X-User-Credential-NYLAS_GRANT_ID` on
 
 ## Documentation
 
-- [MCP Developer Guide](docs/MCP_DEVELOPER_GUIDE.md) - Build MCP servers for Juli
+- [A2A Developer Guide](docs/MCP_DEVELOPER_GUIDE.md) - Build A2A agents for Juli
 - [Tools Documentation](docs/TOOLS_DOCUMENTATION.md) - All available tools
 - [Approval System](docs/APPROVAL_SYSTEM_GUIDE.md) - How approvals work
 - [Docker Guide](docs/DOCKER_GUIDE.md) - Deployment instructions

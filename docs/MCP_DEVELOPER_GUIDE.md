@@ -1,12 +1,14 @@
-# MCP Developer Guide for Juli Platform
+# A2A Developer Guide for Juli Platform
 
-A comprehensive guide to building Model Context Protocol (MCP) servers for Juli - the AI platform used by thousands of users worldwide.
+A comprehensive guide to building Agent-to-Agent (A2A) protocol agents for Juli - the AI platform used by thousands of users worldwide.
+
+**Important**: This project has transitioned from REST-based MCP endpoints to the A2A JSON-RPC protocol. All interactions now use JSON-RPC 2.0 format.
 
 ## Table of Contents
 - [Overview](#overview)
 - [Juli Authentication System](#juli-authentication-system)
-- [MCP Protocol Specification](#mcp-protocol-specification)
-- [Building Your MCP Server](#building-your-mcp-server)
+- [A2A Protocol Specification](#a2a-protocol-specification)
+- [Building Your A2A Agent](#building-your-a2a-agent)
 - [Tool Design Best Practices](#tool-design-best-practices)
 - [Testing and Deployment](#testing-and-deployment)
 
@@ -14,11 +16,11 @@ A comprehensive guide to building Model Context Protocol (MCP) servers for Juli 
 
 ### What is Juli?
 
-Juli is an AI platform that orchestrates multiple AI models and tools to help users accomplish complex tasks. MCP servers extend Juli's capabilities by providing specialized tools that integrate with external services.
+Juli is an AI platform that orchestrates multiple AI models and tools to help users accomplish complex tasks. A2A agents extend Juli's capabilities by providing specialized tools that integrate with external services.
 
-### What is MCP?
+### What is A2A?
 
-Model Context Protocol (MCP) is a standardized way for AI systems to interact with external tools and services. It defines:
+Agent-to-Agent (A2A) protocol is a JSON-RPC 2.0 based standard for AI systems to interact with external tools and services. It defines:
 - How tools are discovered and described
 - How requests and responses are formatted
 - How authentication and context are handled
@@ -27,7 +29,7 @@ Model Context Protocol (MCP) is a standardized way for AI systems to interact wi
 ### Why Build for Juli?
 
 - **Reach thousands of users** - Juli's growing user base needs quality tools
-- **Monetization** - Premium MCP servers can generate revenue
+- **Monetization** - Premium A2A agents can generate revenue
 - **Simple integration** - Juli handles all the complex infrastructure
 - **Focus on your expertise** - Build tools in domains you know best
 
@@ -35,12 +37,12 @@ Model Context Protocol (MCP) is a standardized way for AI systems to interact wi
 
 ### How Juli Handles Credentials
 
-Juli implements a secure, user-friendly authentication system that makes using MCP servers seamless:
+Juli implements a secure, user-friendly authentication system that makes using A2A agents seamless:
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │                 │     │                 │     │                 │
-│   Juli Client   │────▶│  Juli Platform  │────▶│   MCP Server    │
+│   Juli Client   │────▶│  Juli Platform  │────▶│   A2A Agent     │
 │                 │     │                 │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
         │                       │                         │
@@ -51,9 +53,9 @@ Juli implements a secure, user-friendly authentication system that makes using M
 
 ### Setup Flow (Hosted Auth)
 
-Important: Users authenticate via Nylas Hosted Auth. The server keeps `NYLAS_API_KEY` in env and returns a `grant_id`. MCP servers are stateless and never store per-user credentials.
+Important: Users authenticate via Nylas Hosted Auth. The agent keeps `NYLAS_API_KEY` in env and returns a `grant_id`. A2A agents are stateless and never store per-user credentials.
 
-When a user first installs your MCP:
+When a user first installs your A2A agent:
 
 ```typescript
 // 1) Juli checks if setup is needed
@@ -235,11 +237,11 @@ Available context fields:
 - `current_date` - Current date in user's timezone
 - `current_time` - Current time in user's timezone
 
-## Building Your MCP Server
+## Building Your A2A Agent
 
 ### Critical Design Principle: Stateless Credential Handling
 
-MCP servers are stateless regarding user credentials. Extract credentials from headers per request and never store them.
+A2A agents are stateless regarding user credentials. Extract credentials from headers per request and never store them.
 
 ```typescript
 function handleRequest(req) {
@@ -261,7 +263,7 @@ function handleRequest(req) {
 import express from 'express';
 import { z } from 'zod';
 
-class MCPServer {
+class A2AAgent {
   private app: express.Application;
   private tools: Map<string, Tool>;
   
