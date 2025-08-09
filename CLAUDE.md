@@ -1,4 +1,5 @@
 ## Development Guidelines
+<<<<<<< HEAD
 - Make sure you are using proper Nylas documentation and properly using this SDK and researching before making any changes to code
 - When working with OpenAI's API, use the Responses API format for function calling with proper tool_call structure
 
@@ -202,3 +203,6 @@ If people say "ask Gemini" or "ask Perplexity" or "ask Stagehand" they mean to u
 
 <!-- vibe-tools-version: 0.63.3 -->
 </vibe-tools Integration>
+=======
+- Make sure you are using proper Nylas documentation and properly using this SDK and researching before making any changes to code
+>>>>>>> origin/main

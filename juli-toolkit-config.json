@@ -1,0 +1,526 @@
+{
+  "toolkit_type": "mcp_server",
+  "app_store_name": "Juli Email",
+  "ai_visible_name": "email_assistant",
+  "description": "AI-powered email assistant that manages your inbox with natural language. Send, organize, and analyze emails intelligently.",
+  "version": "1.0.0",
+  "base_url": "https://inbox-mcp.juli-ai.com",
+  "credential_config": {
+    "required": [
+      {
+        "key": "NYLAS_GRANT_ID",
+        "display_name": "Nylas Grant ID",
+        "description": "The grant ID from your connected email account",
+        "type": "string",
+        "validation_pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+        "sensitive": true
+      }
+    ],
+    "injection": {
+      "method": "header",
+      "header_format": "X-User-Credential-{CREDENTIAL_KEY}"
+    }
+  },
+  "api_endpoints": {
+    "health_check": {
+      "path": "/health",
+      "method": "GET",
+      "headers": {},
+      "response": {
+        "success": {
+          "status": "healthy"
+        },
+        "error": {
+          "status": "error",
+          "message": "string"
+        }
+      }
+    },
+    "needs_setup": {
+      "path": "/mcp/needs-setup",
+      "method": "GET",
+      "headers": {},
+      "response": {
+        "needs_setup_true": {
+          "needs_setup": true,
+          "message": "Please complete setup first",
+          "connect_url": "/setup/connect-url"
+        },
+        "needs_setup_false": {
+          "needs_setup": false
+        }
+      }
+    },
+    "list_tools": {
+      "path": "/mcp/tools",
+      "method": "GET",
+      "headers": {
+        "X-User-Credential-NYLAS_GRANT_ID": "string"
+      },
+      "response": {
+        "success": {
+          "tools": [
+            {
+              "name": "string",
+              "description": "string",
+              "inputSchema": "object"
+            }
+          ]
+        },
+        "error": {
+          "error": "string"
+        }
+      }
+    },
+    "execute_tool": {
+      "path": "/mcp/tools/{toolName}",
+      "method": "POST",
+      "headers": {
+        "X-User-Credential-NYLAS_GRANT_ID": "string",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "arguments": "object_from_tool_inputSchema"
+      },
+      "response": {
+        "success": "varies_by_tool",
+        "approval_required": {
+          "needs_approval": true,
+          "action_type": "string",
+          "action_data": "object",
+          "preview": {
+            "summary": "string",
+            "details": "object"
+          }
+        },
+        "error": {
+          "error": "string",
+          "error_code": "string"
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "manage_email",
+      "description": "Send, reply, forward, or draft emails using natural language. Handles all email composition intelligently.",
+      "auth_required": true,
+      "approval_capable": true,
+      "api_call": {
+        "path": "/mcp/tools/manage_email",
+        "method": "POST",
+        "headers": {
+          "X-User-Credential-NYLAS_GRANT_ID": "string",
+          "Content-Type": "application/json"
+        },
+        "body_schema": {
+          "arguments": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "send",
+                "reply",
+                "forward",
+                "draft"
+              ]
+            },
+            "query": {
+              "type": "string"
+            },
+            "context_message_id": {
+              "type": "string",
+              "optional": true
+            },
+            "require_approval": {
+              "type": "boolean",
+              "default": true
+            },
+            "user_name": {
+              "type": "string",
+              "context_injected": true
+            },
+            "user_email": {
+              "type": "string",
+              "context_injected": true
+            }
+          }
+        },
+        "responses": {
+          "approval_required": {
+            "needs_approval": true,
+            "action_type": "send_email",
+            "action_data": {
+              "email_content": {
+                "to": [
+                  "array"
+                ],
+                "subject": "string",
+                "body": "string"
+              }
+            },
+            "preview": {
+              "summary": "string",
+              "details": "object"
+            }
+          },
+          "success": {
+            "success": true,
+            "message": "string",
+            "message_id": "string"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "send",
+              "reply",
+              "forward",
+              "draft"
+            ],
+            "description": "What to do with the email"
+          },
+          "query": {
+            "type": "string",
+            "description": "Natural language description. Examples: 'reply to Sarah thanking her for the proposal', 'forward the AWS alerts to the dev team with a summary'"
+          },
+          "context_message_id": {
+            "type": "string",
+            "description": "ID of email being replied to or forwarded (AI will find it if not provided)"
+          },
+          "require_approval": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to require approval before sending"
+          },
+          "user_name": {
+            "type": "string",
+            "description": "User's name from context",
+            "x-context-injection": "user_name"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "User's email from context",
+            "x-context-injection": "user_email"
+          }
+        },
+        "required": [
+          "action",
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "find_emails",
+      "description": "Search and analyze emails using natural language queries. Returns intelligent summaries and insights.",
+      "auth_required": true,
+      "api_call": {
+        "path": "/mcp/tools/find_emails",
+        "method": "POST",
+        "headers": {
+          "X-User-Credential-NYLAS_GRANT_ID": "string",
+          "Content-Type": "application/json"
+        },
+        "body_schema": {
+          "arguments": {
+            "query": {
+              "type": "string"
+            },
+            "analysis_type": {
+              "type": "string",
+              "enum": [
+                "summary",
+                "detailed",
+                "action_items",
+                "priority"
+              ],
+              "default": "summary"
+            },
+            "limit": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        },
+        "responses": {
+          "success": {
+            "success": true,
+            "total_found": "number",
+            "analysis": "object_varies_by_analysis_type"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What you're looking for. Examples: 'unread emails from my manager', 'invoices from last month', 'important emails I haven't responded to'"
+          },
+          "analysis_type": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "detailed",
+              "action_items",
+              "priority"
+            ],
+            "default": "summary",
+            "description": "How to analyze the found emails"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Maximum emails to analyze"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "organize_inbox",
+      "description": "Clean up and organize your inbox intelligently. Tell me what you want to do and I'll handle the details - always with a preview first.",
+      "auth_required": true,
+      "approval_capable": true,
+      "api_call": {
+        "path": "/mcp/tools/organize_inbox",
+        "method": "POST",
+        "headers": {
+          "X-User-Credential-NYLAS_GRANT_ID": "string",
+          "Content-Type": "application/json"
+        },
+        "body_schema": {
+          "arguments": {
+            "instruction": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "object",
+              "optional": true
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approved": {
+              "type": "boolean",
+              "optional": true
+            },
+            "action_data": {
+              "type": "object",
+              "optional": true
+            }
+          }
+        },
+        "responses": {
+          "preview": {
+            "preview": true,
+            "operation": "string",
+            "would_affect": "object",
+            "sample_emails": "array"
+          },
+          "approval_required": {
+            "needs_approval": true,
+            "action_type": "bulk_organize",
+            "action_data": "object",
+            "preview": "object"
+          },
+          "success": {
+            "success": true,
+            "operation": "string",
+            "processed": "number"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instruction": {
+            "type": "string",
+            "description": "Tell me how you want to organize your emails. Examples: 'archive all newsletters older than a week', 'star important emails from clients', 'clean up promotional emails'"
+          },
+          "scope": {
+            "type": "object",
+            "description": "Scope of organization",
+            "properties": {
+              "folder": {
+                "type": "string",
+                "default": "inbox",
+                "description": "Which folder to organize"
+              },
+              "date_range": {
+                "type": "string",
+                "description": "Time range like 'last week' or 'older than 30 days'"
+              },
+              "limit": {
+                "type": "integer",
+                "default": 100,
+                "description": "Max emails to process at once"
+              }
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true,
+            "description": "Preview what will happen before making changes"
+          },
+          "approved": {
+            "type": "boolean",
+            "description": "Whether this is an approved action execution"
+          },
+          "action_data": {
+            "type": "object",
+            "description": "Complete action data for approved execution"
+          }
+        },
+        "required": [
+          "instruction"
+        ]
+      }
+    },
+    {
+      "name": "email_insights",
+      "description": "Get AI-powered insights and summaries about your email patterns, important items, and what needs attention",
+      "auth_required": true,
+      "api_call": {
+        "path": "/mcp/tools/email_insights",
+        "method": "POST",
+        "headers": {
+          "X-User-Credential-NYLAS_GRANT_ID": "string",
+          "Content-Type": "application/json"
+        },
+        "body_schema": {
+          "arguments": {
+            "query": {
+              "type": "string"
+            },
+            "time_period": {
+              "type": "string",
+              "default": "today"
+            }
+          }
+        },
+        "responses": {
+          "success": {
+            "success": true,
+            "summary": "object_with_insights"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language request for email insights. Examples: 'summarize my emails today', 'what emails need my response?', 'who am I communicating with most?'"
+          },
+          "time_period": {
+            "type": "string",
+            "default": "today",
+            "description": "Time period in natural language like 'today', 'this week', 'last month'"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "smart_folders",
+      "description": "Create smart folders that automatically organize emails based on your rules. Just describe what should go in the folder and I'll set it up.",
+      "auth_required": true,
+      "approval_capable": true,
+      "api_call": {
+        "path": "/mcp/tools/smart_folders",
+        "method": "POST",
+        "headers": {
+          "X-User-Credential-NYLAS_GRANT_ID": "string",
+          "Content-Type": "application/json"
+        },
+        "body_schema": {
+          "arguments": {
+            "query": {
+              "type": "string"
+            },
+            "folder_name": {
+              "type": "string",
+              "optional": true
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": true
+            },
+            "approved": {
+              "type": "boolean",
+              "optional": true
+            },
+            "action_data": {
+              "type": "object",
+              "optional": true
+            }
+          }
+        },
+        "responses": {
+          "success": {
+            "success": true,
+            "folder_created": "string",
+            "emails_organized": "number"
+          },
+          "approval_required": {
+            "needs_approval": true,
+            "action_type": "create_smart_folder",
+            "action_data": "object",
+            "preview": "object"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Describe what you want to do with folders. Examples: 'create a folder for urgent client emails', 'set up folders for each project', 'make a folder for receipts and invoices'"
+          },
+          "folder_name": {
+            "type": "string",
+            "description": "Name for the folder (I'll suggest one if you don't specify)"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true,
+            "description": "Preview the folder rules before creating"
+          },
+          "approved": {
+            "type": "boolean",
+            "description": "Whether this is an approved action execution"
+          },
+          "action_data": {
+            "type": "object",
+            "description": "Complete action data for approved execution"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ],
+  "setup_guide": {
+    "flow": "hosted_auth",
+    "connect_url": "/setup/connect-url",
+    "steps": [
+      "Click Connect in Juli (opens /setup/connect-url)",
+      "Choose your email provider and sign in",
+      "After authorization, you are redirected back and your grant_id is stored"
+    ],
+    "notes": [
+      "End users do not need a Nylas account",
+      "No API keys are entered by the user"
+    ]
+  }
+}
