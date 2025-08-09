@@ -1,6 +1,6 @@
-# Inbox MCP
+# Inbox Email Assistant
 
-An example MCP (Model Context Protocol) server for Juli that provides AI-powered email management. This is one of the default apps every Juli user gets when they sign up.
+An A2A (Agent-to-Agent) JSON-RPC agent for Juli that provides AI-powered email management. This is one of the default apps every Juli user gets when they sign up.
 
 ## What it does
 
@@ -20,9 +20,9 @@ Notes:
 - You do not need a Nylas account. Authentication is handled via Nylas Hosted Auth.
 - Juli stores only your grant_id and injects it automatically when calling the tools.
 
-## For MCP Developers
+## For A2A Developers
 
-This repository serves as a reference implementation for building MCP servers for Juli. It demonstrates:
+This repository serves as a reference implementation for building A2A agents for Juli. It demonstrates:
 - HTTP-based stateless architecture
 - Juli's credential injection system
 - Natural language tool design
