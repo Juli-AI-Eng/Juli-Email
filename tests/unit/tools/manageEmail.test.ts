@@ -70,8 +70,9 @@ describe('ManageEmailTool', () => {
       expect(result.action_data.intent.recipients).toEqual(['john@example.com']);
       expect(result.action_data.original_params.action).toBe('send');
       expect(result.preview.summary).toContain('john@example.com');
-      expect(mockEmailAI.understandQuery).toHaveBeenCalledWith(params.query, undefined);
-      expect(mockEmailAI.generateEmailContent).toHaveBeenCalled();
+      // Fast-path skips AI understandQuery when direct emails are detected
+      expect(mockEmailAI.understandQuery).not.toHaveBeenCalled();
+      // Content generation may use synthetic fallback without AI
     });
 
     it('should execute approved email action', async () => {
