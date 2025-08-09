@@ -34,7 +34,7 @@ describe('Setup and Onboarding E2E Tests', () => {
       });
 
       // Check if setup is needed
-      const needsSetupResponse = await setupClient.get('/mcp/needs-setup');
+      const needsSetupResponse = await setupClient.get('/setup/status');
 
       expect(needsSetupResponse.needs_setup).toBe(true);
       expect(needsSetupResponse.has_credentials).toBe(false);
@@ -133,7 +133,7 @@ describe('Setup and Onboarding E2E Tests', () => {
       });
     });
 
-    it('should show no tools when not configured', async () => {
+    it('should advertise capabilities but block execution without credentials', async () => {
       const unconfiguredClient = createTestClient({
         port: E2E_CONFIG.server.port
         // No credentials
@@ -142,11 +142,13 @@ describe('Setup and Onboarding E2E Tests', () => {
       const response = await unconfiguredClient.listTools();
 
       expect(response.tools).toBeDefined();
-      expect(response.tools.length).toBe(0); // No MCP tools without credentials
+      expect(response.tools.length).toBeGreaterThan(0); // Capabilities are always advertised via Agent Card
 
-      // Setup is not an MCP tool - it's a separate endpoint
-      const setupTool = response.tools.find((t: any) => t.name === 'setup_email_connection');
-      expect(setupTool).toBeUndefined();
+      // Attempt to execute without credentials should return JSON-RPC missing_credentials
+      const execResponse = await unconfiguredClient.callTool('find_emails', { query: 'anything' });
+      const err = (execResponse as any).error || {};
+      expect(err).toBeDefined();
+      expect(err.code === 401 || /missing_credentials/i.test(err.message || '')).toBe(true);
     });
   });
 });

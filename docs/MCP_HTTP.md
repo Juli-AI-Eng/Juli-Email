@@ -183,7 +183,8 @@ async function callMCPServer(toolkit, toolName, args, credentials, userId) {
 
 ```javascript
 // MCP Server - Receives request with credentials
-app.post('/mcp/tools/:toolName', async (req, res) => {
+// Deprecated. Use /a2a/rpc JSON-RPC 2.0 methods instead.
+/* app.post('/mcp/tools/:toolName', async (req, res) => {
   const { toolName } = req.params;
   const { arguments } = req.body;
   
@@ -225,7 +226,7 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
     console.error(`Error in ${toolName}:`, error);
     res.status(500).json({ error: error.message });
   }
-});
+}); */
 
 // Tool implementation uses the credentials
 async function getWeather(args, credentials) {
@@ -289,7 +290,7 @@ async function executeGitHubTool(userId, toolName, args) {
   // credentials = { ACCESS_TOKEN: 'gho_xxxxxxxxxxxx' }
   
   // Call GitHub MCP server
-  const response = await fetch('https://github-mcp.example.com/mcp/tools/list_repositories', {
+const response = await fetch('https://github-mcp.example.com/a2a/rpc', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -342,7 +343,7 @@ const result = await callMCPTool(
 );
 
 // 2. Juli injects Slack credentials
-const response = await fetch('https://slack-mcp.example.com/mcp/tools/send_message', {
+const response = await fetch('https://slack-mcp.example.com/a2a/rpc', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -402,7 +403,7 @@ const data = await callMCPTool(
 );
 
 // 2. Juli injects database credentials
-const response = await fetch('https://db-mcp.example.com/mcp/tools/query', {
+const response = await fetch('https://db-mcp.example.com/a2a/rpc', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',

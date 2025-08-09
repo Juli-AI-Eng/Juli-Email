@@ -5,6 +5,7 @@ import cors from 'cors';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import Nylas from 'nylas';
+import { OAuth2Client } from 'google-auth-library';
 
 // Import our components
 import { EmailAI } from './ai/emailAI.js';
@@ -119,6 +120,7 @@ function extractCredentials(headers: any): UserCredentials {
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SERVICE_VERSION = '2.0.0';
 
 // Middleware
 app.use(cors());
@@ -183,6 +185,95 @@ const NYLAS_API_KEY = process.env.NYLAS_API_KEY;
 const NYLAS_CLIENT_ID = process.env.NYLAS_CLIENT_ID;
 const NYLAS_CALLBACK_URI = process.env.NYLAS_CALLBACK_URI;
 const NYLAS_API_URI = process.env.NYLAS_API_URI; // optional (defaults to US)
+
+// --- A2A (Agent-to-Agent) configuration ---
+const A2A_AUDIENCE = process.env.A2A_AUDIENCE || '';
+const A2A_DEV_SHARED_SECRET = process.env.A2A_DEV_SHARED_SECRET || '';
+const A2A_TRUSTED_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
+const oidcClient = new OAuth2Client();
+
+async function authenticateAgent(req: express.Request): Promise<{ sub?: string; email?: string } | null> {
+  const authz = req.headers['authorization'] as string | undefined;
+
+  // Primary: OIDC Bearer token
+  if (authz && authz.toLowerCase().startsWith('bearer ')) {
+    const idToken = authz.slice(7).trim();
+    try {
+      const ticket = await oidcClient.verifyIdToken({ idToken, audience: A2A_AUDIENCE || undefined });
+      const payload = ticket.getPayload();
+      if (payload && (!payload.iss || A2A_TRUSTED_ISSUERS.includes(String(payload.iss)))) {
+        return { sub: payload.sub, email: (payload.email as string) };
+      }
+    } catch (err) {
+      // fall through to dev secret
+    }
+  }
+
+  // Dev fallback: shared secret header
+  const devSecret = req.headers['x-a2a-dev-secret'] as string | undefined;
+  if (A2A_DEV_SHARED_SECRET && devSecret && devSecret === A2A_DEV_SHARED_SECRET) {
+    return { sub: 'dev-agent', email: 'dev@local' };
+  }
+
+  return null;
+}
+
+function buildA2ACapabilities() {
+  return [
+    {
+      name: 'manage_email',
+      description: ManageEmailSchema.description,
+      input_schema: (() => {
+        const schema = zodToJsonSchema(ManageEmailSchema) as any;
+        if (schema.properties) {
+          schema.properties.user_name = {
+            ...schema.properties.user_name,
+            'x-context-injection': 'user_name'
+          };
+          schema.properties.user_email = {
+            ...schema.properties.user_email,
+            'x-context-injection': 'user_email'
+          };
+        }
+        return schema;
+      })()
+    },
+    { name: 'find_emails', description: FindEmailsSchema.description, input_schema: zodToJsonSchema(FindEmailsSchema) },
+    { name: 'organize_inbox', description: OrganizeInboxSchema.description, input_schema: zodToJsonSchema(OrganizeInboxSchema) },
+    { name: 'email_insights', description: EmailInsightsSchema.description, input_schema: zodToJsonSchema(EmailInsightsSchema) },
+    { name: 'smart_folders', description: SmartFoldersSchema.description, input_schema: zodToJsonSchema(SmartFoldersSchema) }
+  ];
+}
+
+function buildAgentCard(req: express.Request) {
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const authSchemes: any[] = [
+    {
+      type: 'oidc',
+      audience: A2A_AUDIENCE || baseUrl,
+      issuers: A2A_TRUSTED_ISSUERS
+    }
+  ];
+  if (A2A_DEV_SHARED_SECRET) {
+    authSchemes.push({ type: 'shared_secret', header: 'X-A2A-Dev-Secret' });
+  }
+  const card: any = {
+    agent_id: 'inbox-mcp',
+    version: SERVICE_VERSION,
+    description: 'Email agent that can compose, find, organize, and analyze email. Supports approval-first execution and agent-to-agent auth.',
+    auth: authSchemes.length === 1 ? authSchemes[0] : { schemes: authSchemes },
+    approvals: { modes: ['stateless_preview_then_approve'] },
+    context_requirements: { credentials: ['EMAIL_ACCOUNT_GRANT'] },
+    capabilities: buildA2ACapabilities(),
+    rpc: { endpoint: '/a2a/rpc' },
+    extensions: {
+      'x-juli': {
+        credentials_manifest: '/.well-known/a2a-credentials.json'
+      }
+    }
+  };
+  return card;
+}
 
 // GET /nylas/auth - Redirect user to Nylas Hosted Auth
 // Optional query params:
@@ -252,15 +343,15 @@ app.get('/api/nylas-email/callback', async (req, res) => {
 
     const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
 
-    // Use the exact registered callback URI for consistency
-    // const requestBase = `${req.protocol}://${req.get('host')}`;
-    // const effectiveRedirectUri = `${requestBase}${req.path}`;
+    // Use the exact callback URL that the user hit to avoid mismatch
+    const requestBase = `${req.protocol}://${req.get('host')}`;
+    const effectiveRedirectUri = `${requestBase}${req.path}`;
 
     // Perform code exchange
     const response = await (nylas as any).auth.exchangeCodeForToken({
       clientSecret: NYLAS_API_KEY,
       clientId: NYLAS_CLIENT_ID,
-      redirectUri: NYLAS_CALLBACK_URI,
+      redirectUri: effectiveRedirectUri || NYLAS_CALLBACK_URI,
       code
     });
 
@@ -286,9 +377,22 @@ app.get('/api/nylas-email/callback', async (req, res) => {
 });
 
 // GET /mcp/tools - List available tools
-app.get('/mcp/tools', (req, res) => {
+/* Deprecated MCP endpoint removed: use A2A discovery and RPC */
+/* app.get('/mcp/tools', (req, res) => {
   const context: RequestContext = res.locals.context;
   const hasCredentials = !!(NYLAS_API_KEY && context.credentials.nylasGrantId);
+
+  // Instrumentation: log credential presence for troubleshooting
+  try {
+    const maskedGrant = context.credentials.nylasGrantId
+      ? `${context.credentials.nylasGrantId.slice(0, 8)}…`
+      : 'none';
+    console.log(
+      `[mcp/tools] env.NYLAS_API_KEY: ${NYLAS_API_KEY ? 'present' : 'missing'}, header.NYLAS_GRANT_ID: ${maskedGrant}, hasCredentials: ${hasCredentials}`
+    );
+  } catch (_) {
+    // no-op
+  }
 
   const tools = [];
 
@@ -338,15 +442,26 @@ app.get('/mcp/tools', (req, res) => {
   }
 
   res.json({ tools });
-});
+}); */
 
 // POST /mcp/tools/:toolName - Execute a tool
-app.post('/mcp/tools/:toolName', async (req, res) => {
+/* Deprecated MCP endpoint removed: use /a2a/rpc */
+/* app.post('/mcp/tools/:toolName', async (req, res) => {
   const { toolName } = req.params;
   const { arguments: args } = req.body;
   const context: RequestContext = res.locals.context;
 
-  console.log(`Executing ${toolName} for user ${context.userId} (${context.requestId})`);
+  // Instrumentation: log tool execution with credential presence
+  try {
+    const maskedGrant = context.credentials.nylasGrantId
+      ? `${context.credentials.nylasGrantId.slice(0, 8)}…`
+      : 'none';
+    console.log(
+      `Executing ${toolName} | env.NYLAS_API_KEY: ${NYLAS_API_KEY ? 'present' : 'missing'}, header.NYLAS_GRANT_ID: ${maskedGrant}, user: ${context.userId || 'unknown'}, reqId: ${context.requestId || 'n/a'}`
+    );
+  } catch (_) {
+    // no-op
+  }
 
   try {
     let result: any;
@@ -475,20 +590,203 @@ app.post('/mcp/tools/:toolName', async (req, res) => {
       code: error.code || 'TOOL_EXECUTION_ERROR'
     });
   }
-});
+}); */
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     service: 'inbox-mcp',
-    version: '2.0.0',
+    version: SERVICE_VERSION,
     transport: 'http'
   });
 });
 
+// --- A2A routes ---
+app.get('/.well-known/a2a.json', (req, res) => {
+  res.json(buildAgentCard(req));
+});
+
+function buildCredentialsManifest() {
+  return {
+    credentials: [
+      {
+        key: 'EMAIL_ACCOUNT_GRANT',
+        display_name: 'Email Account Grant',
+        sensitive: true,
+        notes: 'Opaque user grant for mailbox access; inject on every execute/approve call.',
+        flows: [
+          {
+            type: 'hosted_auth',
+            connect_url: '/setup/connect-url',
+            callback: '/api/nylas-email/callback',
+            provider_scopes: {
+              google: [
+                'openid',
+                'https://www.googleapis.com/auth/userinfo.email',
+                'https://www.googleapis.com/auth/userinfo.profile',
+                'https://www.googleapis.com/auth/gmail.modify',
+                'https://www.googleapis.com/auth/contacts',
+                'https://www.googleapis.com/auth/contacts.readonly',
+                'https://www.googleapis.com/auth/contacts.other.readonly'
+              ],
+              microsoft: [
+                'Mail.ReadWrite',
+                'Mail.Send',
+                'Contacts.Read',
+                'Contacts.Read.Shared'
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  };
+}
+
+app.get('/.well-known/a2a-credentials.json', (_req, res) => {
+  res.json(buildCredentialsManifest());
+});
+
+// Removed REST A2A endpoints; JSON-RPC is the canonical transport.
+
+// --- A2A JSON-RPC 2.0 endpoint (alignment with A2A JSON-RPC transport) ---
+// Supported methods:
+// - agent.card
+// - agent.handshake
+// - tool.execute
+// - tool.approve
+app.post('/a2a/rpc', async (req, res) => {
+  const agent = await authenticateAgent(req);
+  if (!agent) return res.status(401).json({ jsonrpc: '2.0', id: null, error: { code: 401, message: 'unauthorized_agent' } });
+
+  const handleSingle = async (rpcReq: any) => {
+    const isNotification = typeof rpcReq?.id === 'undefined';
+    const id = isNotification ? null : rpcReq.id;
+    const versionOk = rpcReq.jsonrpc === '2.0';
+    const method = rpcReq.method as string;
+    const params = rpcReq.params || {};
+    if (!versionOk || !method) {
+      return isNotification ? null : { jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid Request' } };
+    }
+
+    try {
+      switch (method) {
+        case 'agent.card': {
+          return isNotification ? null : { jsonrpc: '2.0', id, result: buildAgentCard(req) };
+        }
+        case 'agent.handshake': {
+          return isNotification ? null : { jsonrpc: '2.0', id, result: { agent: { sub: agent.sub, email: agent.email }, card: buildAgentCard(req), server_time: new Date().toISOString() } };
+        }
+        case 'tool.execute': {
+          const { tool, arguments: args, user_context, request_id } = params;
+          const nylasGrantId = user_context?.credentials?.EMAIL_ACCOUNT_GRANT || user_context?.credentials?.NYLAS_GRANT_ID || user_context?.credentials?.nylas_grant_id;
+          if (!NYLAS_API_KEY || !nylasGrantId) {
+            return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 401, message: 'missing_credentials', data: { hint: '/.well-known/a2a-credentials.json' } } };
+          }
+          const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
+          const emailAI = new EmailAI();
+          let result: any;
+          switch (tool) {
+            case 'manage_email': {
+              const typed = ManageEmailSchema.parse(args) as ManageEmailParams;
+              const exec = new ManageEmailTool(nylas, nylasGrantId, emailAI, { userName: typed.user_name, userEmail: typed.user_email });
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'find_emails': {
+              const typed = FindEmailsSchema.parse(args) as FindEmailsParams;
+              const exec = new FindEmailsTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'organize_inbox': {
+              const typed = OrganizeInboxSchema.parse(args) as OrganizeInboxParams;
+              const exec = new OrganizeInboxTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'email_insights': {
+              const typed = EmailInsightsSchema.parse(args) as EmailInsightsParams;
+              const exec = new EmailInsightsTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'smart_folders': {
+              const typed = SmartFoldersSchema.parse(args) as SmartFoldersParams;
+              const exec = new SmartFoldersTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            default:
+              return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 404, message: 'unknown_tool', data: { tool } } };
+          }
+          return isNotification ? null : { jsonrpc: '2.0', id, result: { request_id, result } };
+        }
+        case 'tool.approve': {
+          const { tool, original_arguments, action_data, user_context, request_id } = params;
+          const nylasGrantId = user_context?.credentials?.EMAIL_ACCOUNT_GRANT || user_context?.credentials?.NYLAS_GRANT_ID || user_context?.credentials?.nylas_grant_id;
+          if (!NYLAS_API_KEY || !nylasGrantId) {
+            return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 401, message: 'missing_credentials', data: { hint: '/.well-known/a2a-credentials.json' } } };
+          }
+          const nylas = new Nylas({ apiKey: NYLAS_API_KEY, apiUri: NYLAS_API_URI });
+          const emailAI = new EmailAI();
+          let result: any;
+          
+          switch (tool) {
+            case 'manage_email': {
+              const typed = ManageEmailSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as ManageEmailParams;
+              const exec = new ManageEmailTool(nylas, nylasGrantId, emailAI, { userName: typed.user_name, userEmail: typed.user_email });
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'organize_inbox': {
+              const typed = OrganizeInboxSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as OrganizeInboxParams;
+              const exec = new OrganizeInboxTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            case 'smart_folders': {
+              const typed = SmartFoldersSchema.parse({ ...(original_arguments || {}), approved: true, action_data }) as SmartFoldersParams;
+              const exec = new SmartFoldersTool(nylas, nylasGrantId, emailAI);
+              result = await exec.execute(typed);
+              break;
+            }
+            default:
+              return isNotification ? null : { jsonrpc: '2.0', id, error: { code: 400, message: 'approval_not_supported_for_tool', data: { tool } } };
+          }
+          
+          return isNotification ? null : { jsonrpc: '2.0', id, result: { request_id, result } };
+        }
+        default:
+          return isNotification ? null : { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } };
+      }
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return isNotification ? null : { jsonrpc: '2.0', id, error: { code: -32602, message: 'Invalid params', data: err.errors } };
+      }
+      return isNotification ? null : { jsonrpc: '2.0', id, error: { code: -32000, message: err?.message || 'Internal error' } };
+    }
+  };
+
+  const body = req.body;
+  if (Array.isArray(body)) {
+    const results = await Promise.all(body.map(handleSingle));
+    const filtered = results.filter((r) => r !== null);
+    if (filtered.length === 0) {
+      return res.status(204).end();
+    }
+    return res.json(filtered);
+  } else {
+    const result = await handleSingle(body);
+    if (result === null) {
+      return res.status(204).end();
+    }
+    return res.json(result);
+  }
+});
 // GET /mcp/needs-setup - Check if setup is required
-app.get('/mcp/needs-setup', (req, res) => {
+app.get('/setup/status', (req, res) => {
   const context: RequestContext = res.locals.context;
   const hasCredentials = !!(NYLAS_API_KEY && context.credentials.nylasGrantId);
   const requestBase = `${req.protocol}://${req.get('host')}`;
@@ -581,9 +879,7 @@ app.listen(PORT, () => {
   console.log(`Inbox MCP HTTP server running on port ${PORT}`);
   console.log(`Available endpoints:`);
   console.log(`  GET  /health - Health check`);
-  console.log(`  GET  /mcp/needs-setup - Check if setup is required`);
-  console.log(`  GET  /mcp/tools - List available tools`);
-  console.log(`  POST /mcp/tools/:toolName - Execute a tool`);
+  console.log(`  GET  /setup/status - Check if setup is required`);
   console.log(`  GET  /setup/instructions - Get setup instructions`);
   console.log(`  POST /setup/validate - Validate Nylas credentials`);
 });

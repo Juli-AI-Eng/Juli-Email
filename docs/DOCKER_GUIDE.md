@@ -29,7 +29,12 @@ cd inbox-mcp
 2. Create a `.env` file:
 ```bash
 cp .env.example .env
-# Edit .env and add your OpenAI API key
+# Edit .env and add your required secrets:
+# - OPENAI_API_KEY
+# - NYLAS_API_KEY
+# - NYLAS_CLIENT_ID
+# - NYLAS_CALLBACK_URI
+# (optional) A2A_AUDIENCE, A2A_DEV_SHARED_SECRET, NYLAS_API_URI
 ```
 
 3. Run with Docker Compose:
@@ -126,12 +131,17 @@ docker-compose up -d --scale inbox-mcp=3
 ## Configuration
 
 ### Environment Variables
+All required environment variables are documented in `.env.example`. Common ones include:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | Your OpenAI API key (required) | - |
-| `PORT` | Port the server listens on | 3000 |
-| `NODE_ENV` | Environment (development/production) | production |
+| Variable | Description | Required |
+|------------------------|---------------------------------------------|----------|
+| `OPENAI_API_KEY` | OpenAI API key | Yes |
+| `NYLAS_API_KEY` | Nylas API key (starts with nyk_) | Yes |
+| `NYLAS_CLIENT_ID` | Nylas client ID | Yes |
+| `NYLAS_CALLBACK_URI` | OAuth callback URI | Yes |
+| `A2A_AUDIENCE` | OIDC audience | No |
+| `A2A_DEV_SHARED_SECRET` | Dev shared secret | No |
+| `NYLAS_API_URI` | Nylas API base (e.g., EU) | No |
 
 ### Docker Compose Configuration
 

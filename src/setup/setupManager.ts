@@ -2,6 +2,48 @@ import Nylas from 'nylas';
 import { SetupResponse, SetupInstruction } from '../types/index.js';
 
 export class SetupManager {
+  private async testEmailConnection(credentials: any): Promise<SetupResponse> {
+    try {
+      const testClient = new Nylas({ 
+        apiKey: credentials.nylas_api_key,
+        apiUri: process.env.NYLAS_API_URI || 'https://api.us.nylas.com'
+      });
+      
+      // Test by fetching recent messages (lightweight operation)
+      const messages = await testClient.messages.list({
+        identifier: credentials.nylas_grant_id,
+        queryParams: {
+          limit: 1
+        }
+      });
+      
+      // Also get grant info for more details
+      const grant = await testClient.grants.find({
+        grantId: credentials.nylas_grant_id
+      });
+      
+      const emailAddress = grant.data.email || 'your email';
+      
+      return {
+        type: 'setup_success',
+        message: `Connection successful! Connected to ${emailAddress} (${grant.data.provider}). Messages accessible: ${messages.data.length > 0 ? 'Yes' : 'No'}`,
+        credentials_validated: true,
+        credentials_to_store: {
+          nylas_api_key: credentials.nylas_api_key,
+          nylas_grant_id: credentials.nylas_grant_id,
+          email_address: emailAddress,
+          provider: grant.data.provider
+        }
+      };
+    } catch (error: any) {
+      return {
+        type: 'setup_error',
+        message: 'Connection test failed',
+        error_details: error.message || 'Could not connect to email account'
+      };
+    }
+  }
+
   async handleSetup(params: any): Promise<SetupResponse> {
     const { action, credentials } = params;
 
@@ -20,11 +62,21 @@ export class SetupManager {
         return this.validateCredentials(credentials);
       
       case 'test_connection':
-        // In HTTP mode, this is typically called after credentials are stored
-        return {
-          type: 'setup_success',
-          message: 'Connection test feature coming soon. Please validate credentials first.'
+        // Test the connection using provided credentials or environment variables
+        const testCredentials = credentials || {
+          nylas_api_key: process.env.NYLAS_API_KEY || '',
+          nylas_grant_id: process.env.NYLAS_GRANT_ID || ''
         };
+        
+        if (!testCredentials.nylas_api_key || !testCredentials.nylas_grant_id) {
+          return {
+            type: 'setup_error',
+            message: 'Missing credentials for connection test',
+            error_details: 'Please provide nylas_api_key and nylas_grant_id'
+          };
+        }
+        
+        return this.testEmailConnection(testCredentials);
 
       case 'troubleshoot':
         return this.troubleshoot(params.issue || 'general issue');

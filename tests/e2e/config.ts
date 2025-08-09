@@ -6,8 +6,8 @@ export const E2E_CONFIG = {
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY!,
-    model: 'gpt-4o-mini', // Use cheaper model for tests
-    graderModel: 'gpt-4o-mini'
+    model: 'gpt-5-mini', // Cheaper model for tests
+    graderModel: 'gpt-5-mini'
   },
 
   // Test Configuration

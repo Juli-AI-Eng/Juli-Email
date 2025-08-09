@@ -14,6 +14,7 @@ export interface HttpClientConfig {
   credentials?: {
     nylasGrantId?: string;
   };
+  devAgentSecret?: string;
 }
 
 export interface ToolCallResponse {
@@ -34,9 +35,11 @@ export class HttpTestClient {
   private credentials?: {
     nylasGrantId?: string;
   };
+  private devAgentSecret?: string;
 
   constructor(config: HttpClientConfig) {
     this.credentials = config.credentials;
+    this.devAgentSecret = config.devAgentSecret ?? process.env.A2A_DEV_SHARED_SECRET ?? 'test-secret';
     this.client = axios.create({
       baseURL: `${config.baseUrl}:${config.port}`,
       timeout: 60000, // 60 seconds for AI operations
@@ -183,8 +186,13 @@ export class HttpTestClient {
   async listTools(): Promise<any> {
     const headers = this.getCredentialHeaders();
     try {
-      const response = await this.client.get('/mcp/tools', { headers });
-      return response.data;
+      // Use A2A Agent Card discovery
+      const response = await this.client.get('/.well-known/a2a.json', { headers });
+      const card = response.data || {};
+      const tools = Array.isArray(card.capabilities)
+        ? card.capabilities.map((c: any) => ({ name: c.name, description: c.description }))
+        : [];
+      return { tools };
     } catch (error: any) {
       if (error.response) {
         return error.response.data;
@@ -194,14 +202,29 @@ export class HttpTestClient {
   }
 
   async callTool(toolName: string, args: any): Promise<ToolCallResponse> {
+    // JSON-RPC wrapper for A2A
     const headers = this.getCredentialHeaders();
+    const id = Date.now().toString();
+    const payload = {
+      jsonrpc: '2.0',
+      id,
+      method: 'tool.execute',
+      params: {
+        tool: toolName,
+        arguments: args,
+        user_context: {
+          credentials: {
+            EMAIL_ACCOUNT_GRANT: this.credentials?.nylasGrantId
+          }
+        },
+        request_id: id
+      }
+    };
     try {
-      const response = await this.client.post(
-        `/mcp/tools/${toolName}`,
-        { arguments: args },
-        { headers }
-      );
-      return response.data;
+      const response = await this.client.post(`/a2a/rpc`, payload, { headers });
+      const data = response.data;
+      if (data?.error) return data;
+      return data?.result || data;
     } catch (error: any) {
       if (error.response) {
         return error.response.data;
@@ -210,11 +233,42 @@ export class HttpTestClient {
     }
   }
 
+  // Generic JSON-RPC caller for flexibility in tests
+  async callRpc(method: string, params: any = {}, id: string | number = Date.now()): Promise<any> {
+    const headers = this.getCredentialHeaders();
+    const payload = { jsonrpc: '2.0', id, method, params };
+    try {
+      const response = await this.client.post('/a2a/rpc', payload, { headers });
+      return response.data;
+    } catch (error: any) {
+      if (error.response) return error.response.data;
+      throw error;
+    }
+  }
+
+  // Batch JSON-RPC call helper
+  async callBatch(requests: any[]): Promise<any> {
+    const headers = this.getCredentialHeaders();
+    const response = await this.client.post('/a2a/rpc', requests, { headers });
+    return response.data;
+  }
+
+  // Raw batch call returning status and data (for notification-only 204 cases)
+  async callBatchRaw(requests: any[]): Promise<{ status: number; data: any }> {
+    const headers = this.getCredentialHeaders();
+    const response = await this.client.post('/a2a/rpc', requests, { headers });
+    return { status: response.status, data: response.data };
+  }
+
   private getCredentialHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
 
     if (this.credentials?.nylasGrantId) {
       headers['X-User-Credential-NYLAS_GRANT_ID'] = this.credentials.nylasGrantId;
+    }
+
+    if (this.devAgentSecret) {
+      headers['X-A2A-Dev-Secret'] = this.devAgentSecret;
     }
 
     return headers;
@@ -279,8 +333,9 @@ export async function startTestServer(): Promise<{ port: number; stop: () => Pro
   const port = 3000 + Math.floor(Math.random() * 1000); // Random port to avoid conflicts
 
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, PORT: port.toString() };
-    const serverProcess = spawn('npm', ['run', 'start'], { env });
+    const env = { ...process.env, PORT: port.toString(), A2A_DEV_SHARED_SECRET: process.env.A2A_DEV_SHARED_SECRET || 'test-secret' };
+    // Run from TypeScript source to ensure tests use latest code
+    const serverProcess = spawn('npm', ['run', 'dev'], { env });
 
     let started = false;
 
