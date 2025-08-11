@@ -47,7 +47,7 @@ RUN chown -R nodejs:nodejs /app
 USER nodejs
 
 # Expose the default port
-EXPOSE 3000
+EXPOSE 3001
 
 # Use tini for proper signal handling
 ENTRYPOINT ["/sbin/tini", "--"]
