@@ -116,12 +116,23 @@ GET /setup/connect-url?redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fnylas-
 ```
 Open the returned URL and complete the provider login.
 
-3) Callback returns your grant
+3) Callback redirects to Juli Brain
 ```
 GET /api/nylas-email/callback?code=...
-→ { "success": true, "grant_id": "...", "email": "user@example.com" }
+→ Redirects to JULI_BRAIN_CALLBACK_URI with grant_id and status
 ```
-Juli stores the grant_id and injects it as `X-User-Credential-NYLAS_GRANT_ID` on every tool request.
+Juli Brain forwards the grant to Integration Platform for storage, then injects it as a header on every tool request.
+
+## Authentication Architecture
+
+The OAuth callback now properly redirects to Juli Brain instead of returning JSON:
+- Agent receives OAuth callback from Nylas
+- Agent redirects to Juli Brain with grant_id
+- Juli Brain forwards to Integration Platform for storage
+- Integration Platform stores in IBM Gateway SQLite database
+- Credentials are injected via headers on each request
+
+See `.env.example` for the required `JULI_BRAIN_CALLBACK_URI` configuration.
 
 ## Documentation
 

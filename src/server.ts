@@ -185,6 +185,20 @@ const NYLAS_API_KEY = process.env.NYLAS_API_KEY;
 const NYLAS_CLIENT_ID = process.env.NYLAS_CLIENT_ID;
 const NYLAS_CALLBACK_URI = process.env.NYLAS_CALLBACK_URI;
 const NYLAS_API_URI = process.env.NYLAS_API_URI; // optional (defaults to US)
+const JULI_BRAIN_CALLBACK_URI = process.env.JULI_BRAIN_CALLBACK_URI;
+
+// Validate critical environment variables at startup
+if (!NYLAS_API_KEY || !NYLAS_CLIENT_ID || !NYLAS_CALLBACK_URI) {
+  logger.error('Missing required Nylas environment variables');
+  logger.error('Required: NYLAS_API_KEY, NYLAS_CLIENT_ID, NYLAS_CALLBACK_URI');
+  process.exit(1);
+}
+
+if (!JULI_BRAIN_CALLBACK_URI) {
+  logger.error('Missing required JULI_BRAIN_CALLBACK_URI environment variable');
+  logger.error('This is required for OAuth callback redirection to Juli Brain');
+  process.exit(1);
+}
 
 // --- A2A (Agent-to-Agent) configuration ---
 const A2A_AUDIENCE = process.env.A2A_AUDIENCE || '';
@@ -363,16 +377,43 @@ app.get('/api/nylas-email/callback', async (req, res) => {
       return res.status(500).json({ error: 'No grant_id returned from Nylas' });
     }
 
-    // Return the grant so the client can store and inject it on future requests
-    res.json({
-      success: true,
-      grant_id: grantId,
-      email,
-      message: 'Connected successfully. Store grant_id and start calling the email tools.'
-    });
+    // Redirect to Juli Brain's universal callback
+    // IMPORTANT: Juli Brain acts as a middleman and will forward the credential
+    // to the Integration Platform, which stores it in IBM Gateway's SQLite database (mcp.db)
+    // Inbox-MCP remains completely stateless - we never store credentials here
+    const juliBrainCallback = process.env.JULI_BRAIN_CALLBACK_URI;
+    
+    if (!juliBrainCallback) {
+      logger.error('JULI_BRAIN_CALLBACK_URI environment variable not set');
+      return res.status(500).json({
+        error: 'Server misconfigured - missing JULI_BRAIN_CALLBACK_URI'
+      });
+    }
+
+    // Build redirect URL with grant information
+    // Juli Brain will receive this and forward to Integration Platform for storage
+    const redirectUrl = new URL(JULI_BRAIN_CALLBACK_URI!);
+    redirectUrl.searchParams.append('grant_id', grantId);
+    redirectUrl.searchParams.append('credential_key', 'EMAIL_ACCOUNT_GRANT');
+    redirectUrl.searchParams.append('agent_id', 'inbox-mcp');
+    if (email) {
+      redirectUrl.searchParams.append('email', email);
+    }
+    redirectUrl.searchParams.append('status', 'success');
+    
+    logger.log(`Redirecting to Juli Brain: ${redirectUrl.toString()}`);
+    return res.redirect(redirectUrl.toString());
   } catch (error: any) {
     logger.error('OAuth callback error:', error);
-    res.status(500).json({ error: error.message || 'Failed to complete OAuth exchange' });
+    
+    // Redirect to Juli Brain with error status
+    const errorUrl = new URL(JULI_BRAIN_CALLBACK_URI!);
+    errorUrl.searchParams.append('status', 'error');
+    errorUrl.searchParams.append('error', error.message || 'Authentication failed');
+    errorUrl.searchParams.append('agent_id', 'inbox-mcp');
+    errorUrl.searchParams.append('credential_key', 'EMAIL_ACCOUNT_GRANT');
+    
+    return res.redirect(errorUrl.toString());
   }
 });
 
